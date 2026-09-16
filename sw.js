@@ -22,8 +22,8 @@ self.addEventListener("push", (e) => {
   e.waitUntil(
     self.registration.showNotification(d.title || "Glane", {
       body: d.body || "",
-      icon: "/icon-192.png",
-      badge: "/icon-192.png",
+      icon: "/icon-192.png?v=2",
+      badge: "/icon-192.png?v=2",
       tag: d.tag || "glane",
       data: { url: d.url || "/" },
     })
