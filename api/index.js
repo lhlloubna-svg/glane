@@ -454,11 +454,20 @@ async function setupAccount(uid) {
 module.exports = async (req, res) => {
   if (!configured(res)) return;
   try {
+    // Réglage public : l'inscription demande-t-elle un code d'invitation ?
+    if (req.method === "GET" && req.query && req.query.config) {
+      return res.json({ inviteRequired: !!process.env.GLANE_CODE });
+    }
     if (req.method === "GET") {
       const user = await requireUser(req, res);
       if (!user) return;
-      const [p] = await db(`profiles?user_id=eq.${user.id}&select=share_key`);
-      return res.json({ email: user.email, share_key: p ? p.share_key : null });
+      const [p] = await db(`profiles?user_id=eq.${user.id}&select=share_key,display_name,profile_token`);
+      return res.json({
+        email: user.email,
+        share_key: p ? p.share_key : null,
+        display_name: p ? p.display_name : null,
+        profile_token: p ? p.profile_token : null,
+      });
     }
     if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
 
@@ -467,7 +476,8 @@ module.exports = async (req, res) => {
     const password = String(b.password || "");
 
     if (b.action === "signup") {
-      if (!process.env.GLANE_CODE || String(b.invite || "").trim() !== process.env.GLANE_CODE) {
+      // Sans variable GLANE_CODE sur Vercel, l'inscription est ouverte à tous
+      if (process.env.GLANE_CODE && String(b.invite || "").trim() !== process.env.GLANE_CODE) {
         return res.status(403).json({ error: "This invite code isn't valid." });
       }
       if (!EMAIL.test(email)) return res.status(400).json({ error: "Enter a valid email." });
@@ -510,6 +520,21 @@ module.exports = async (req, res) => {
     if (b.action === "logout") {
       await authFetch("logout", { token: user.token });
       return res.json({ ok: true });
+    }
+
+    if (b.action === "profile") {
+      const name = String(b.display_name || "").replace(/\s+/g, " ").trim().slice(0, 40) || null;
+      await db(`profiles?user_id=eq.${user.id}`, { method: "PATCH", body: { display_name: name } });
+      return res.json({ display_name: name });
+    }
+
+    if (b.action === "profile-share") {
+      const [cur] = await db(`profiles?user_id=eq.${user.id}&select=profile_token`);
+      let token = cur ? cur.profile_token : null;
+      if (b.on && !token) token = require("crypto").randomBytes(12).toString("base64url");
+      if (!b.on) token = null;
+      await db(`profiles?user_id=eq.${user.id}`, { method: "PATCH", body: { profile_token: token } });
+      return res.json({ profile_token: token });
     }
 
     if (b.action === "rotate-key") {
@@ -597,6 +622,7 @@ module.exports = async (req, res) => {
       if (HEX.test(b.color || "")) patch.color = b.color;
       if (KINDS.includes(b.kind)) patch.kind = b.kind;
       if (ICON.test(b.icon || "")) patch.emoji = b.icon;
+      if (typeof b.on_profile === "boolean") patch.on_profile = b.on_profile;
       // Partage par lien : un jeton aléatoire, supprimé quand on arrête de partager
       if (b.share === true) {
         const [cur] = await db(`${target}&select=share_token`);
@@ -1164,7 +1190,7 @@ module.exports.reminderPick = reminderPick;
 __def("public", (module, exports, require) => {
 // /api?route=public&t=... : un tableau partagé par lien, lisible sans compte
 // Avec &html=1 : la page de l'app, avec l'aperçu (titre, image) pour WhatsApp, iMessage, etc.
-const { db, configured } = require("./_lib");
+const { db, configured, UUID } = require("./_lib");
 const { BLOCKED } = require("./_preview");
 
 const TOKEN = /^[A-Za-z0-9_-]{16,40}$/;
@@ -1175,9 +1201,40 @@ async function load(token) {
   if (!boards.length) return null;
   const board = boards[0];
   // Jamais les notes perso, ni ce qui a été mis de côté
-  const items = await db(`items?board_id=eq.${board.id}&archived_at=is.null&select=id,type,title,text,url,site,image_url,event_date,created_at,board_id,done_at&order=created_at.desc&limit=500`);
+  const items = await db(`items?board_id=eq.${board.id}&archived_at=is.null&select=${ITEM_FIELDS}&order=created_at.desc&limit=500`);
   for (const i of items) if (i.title && BLOCKED.test(i.title)) i.title = null;
   return { board, items };
+}
+
+const ITEM_FIELDS = "id,type,title,text,url,site,image_url,event_date,created_at,board_id,done_at";
+
+async function loadProfile(token) {
+  const profs = await db(`profiles?profile_token=eq.${token}&select=user_id,display_name`);
+  if (!profs.length) return null;
+  const owner = profs[0];
+  const boards = await db(`boards?user_id=eq.${owner.user_id}&on_profile=eq.true&select=id,name,emoji,color,kind,slug,position&order=position.asc`);
+  const list = [];
+  if (boards.length) {
+    const items = await db(`items?board_id=in.(${boards.map((b) => b.id).join(",")})&archived_at=is.null&select=board_id,type,text,image_url&order=created_at.desc&limit=3000`);
+    for (const b of boards) {
+      const its = items.filter((i) => i.board_id === b.id);
+      const quote = its.find((i) => i.type === "text" && i.text);
+      const { position, ...pub } = b;
+      list.push({ ...pub, count: its.length, covers: its.filter((i) => i.image_url).slice(0, 4).map((i) => i.image_url), quote: quote ? quote.text.slice(0, 140) : null });
+    }
+  }
+  return { owner: owner.user_id, profile: { name: owner.display_name || "Someone", boards: list } };
+}
+
+async function loadProfileBoard(token, boardId) {
+  if (!UUID.test(boardId)) return null;
+  const profs = await db(`profiles?profile_token=eq.${token}&select=user_id`);
+  if (!profs.length) return null;
+  const boards = await db(`boards?id=eq.${boardId}&user_id=eq.${profs[0].user_id}&on_profile=eq.true&select=id,name,emoji,color,kind,slug`);
+  if (!boards.length) return null;
+  const items = await db(`items?board_id=eq.${boardId}&archived_at=is.null&select=${ITEM_FIELDS}&order=created_at.desc&limit=500`);
+  for (const i of items) if (i.title && BLOCKED.test(i.title)) i.title = null;
+  return { board: boards[0], items };
 }
 
 async function page(req, res, data, token) {
@@ -1190,20 +1247,35 @@ async function page(req, res, data, token) {
     html = await r.text();
   } catch {
     // Sans la page, on renvoie vers la version simple du lien
-    res.setHeader("Location", `/?s=${encodeURIComponent(token)}`);
+    res.setHeader("Location", `/?${req.query.p ? "p" : "s"}=${encodeURIComponent(token)}`);
     return res.status(302).send("");
   }
-  const count = data ? data.items.length : 0;
-  const title = data ? `${data.board.name} · Glane` : "Glane";
-  const desc = data ? `${count} thing${count === 1 ? "" : "s"} kept on Glane.` : "This board isn't shared anymore.";
-  const cover = data && data.items.find((i) => i.image_url);
+  const isProfile = !!(data && data.profile) || req.query.p;
+  const path = isProfile ? `/p/${token}` : `/s/${token}`;
+  let title = "Glane";
+  let desc = isProfile ? "This profile isn't shared anymore." : "This board isn't shared anymore.";
+  let coverUrl = null;
+  if (data && data.profile) {
+    const n = data.profile.boards.length;
+    title = `${data.profile.name} · Glane`;
+    desc = `${n} board${n === 1 ? "" : "s"} kept on Glane.`;
+    const withCover = data.profile.boards.find((b) => b.covers.length);
+    coverUrl = withCover ? withCover.covers[0] : null;
+  } else if (data) {
+    const count = data.items.length;
+    title = `${data.board.name} · Glane`;
+    desc = `${count} thing${count === 1 ? "" : "s"} kept on Glane.`;
+    const c = data.items.find((i) => i.image_url);
+    coverUrl = c ? c.image_url : null;
+  }
+  const cover = coverUrl ? { image_url: coverUrl } : null;
   const meta = [
     `<meta name="robots" content="noindex, nofollow">`,
     `<meta property="og:type" content="website">`,
     `<meta property="og:site_name" content="Glane">`,
     `<meta property="og:title" content="${esc(title)}">`,
     `<meta property="og:description" content="${esc(desc)}">`,
-    `<meta property="og:url" content="${esc(`${proto}://${host}/s/${token}`)}">`,
+    `<meta property="og:url" content="${esc(`${proto}://${host}${path}`)}">`,
     cover ? `<meta property="og:image" content="${esc(cover.image_url)}">` : `<meta property="og:image" content="${esc(`${proto}://${host}/icon-512.png`)}">`,
     `<meta name="twitter:card" content="${cover ? "summary_large_image" : "summary"}">`,
   ].join("\n");
@@ -1218,6 +1290,21 @@ async function page(req, res, data, token) {
 module.exports = async (req, res) => {
   if (!configured(res)) return;
   try {
+    if (req.query.p !== undefined) {
+      const token = String(req.query.p || "");
+      // La page HTML passe en premier, même si l'adresse contient ?b= (tableau ouvert depuis le profil)
+      if (req.query.b && !req.query.html) {
+        const board = TOKEN.test(token) ? await loadProfileBoard(token, String(req.query.b)) : null;
+        if (!board) return res.status(404).json({ error: "This board isn't on the profile anymore." });
+        res.setHeader("Cache-Control", "public, s-maxage=30");
+        return res.json(board);
+      }
+      const prof = TOKEN.test(token) ? await loadProfile(token) : null;
+      if (req.query.html) return await page(req, res, prof, token);
+      if (!prof) return res.status(404).json({ error: "This profile isn't shared anymore." });
+      res.setHeader("Cache-Control", "public, s-maxage=30");
+      return res.json({ profile: prof.profile });
+    }
     const token = String((req.query && req.query.t) || "");
     const data = TOKEN.test(token) ? await load(token) : null;
     if (req.query.html) return await page(req, res, data, token);
