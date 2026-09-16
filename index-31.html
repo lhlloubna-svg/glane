@@ -1,0 +1,772 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Glane</title>
+<meta name="description" content="Tes inspirations rangées en tableaux">
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#F7F5FA">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Glane">
+<link rel="apple-touch-icon" href="/icon-180.png">
+<link rel="icon" type="image/png" href="/icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#F7F5FA;--ink:#1B1622;--muted:#7B7386;--line:#E6E1EC;--serif:'Instrument Serif',Georgia,serif}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--ink);font-family:'Manrope',system-ui,-apple-system,sans-serif;-webkit-tap-highlight-color:transparent}
+body.locked{overflow:hidden}
+:focus-visible{outline:2px solid var(--ink);outline-offset:3px}
+button{font:inherit;color:inherit}
+.app{min-height:100vh;padding:calc(18px + env(safe-area-inset-top)) clamp(16px,4vw,48px) calc(120px + env(safe-area-inset-bottom))}
+.muted{color:var(--muted)}
+.bar{display:flex;align-items:center;gap:14px;margin-bottom:26px;flex-wrap:wrap}
+.brand{font-family:var(--serif);font-size:44px;line-height:1;background:none;border:0;padding:0;cursor:pointer}
+.search{margin-left:auto;display:flex;align-items:center;gap:8px;background:#fff;border:1px solid var(--line);border-radius:999px;height:46px;padding:0 16px;width:min(380px,100%);color:var(--muted)}
+.search:focus-within{border-color:var(--ink)}
+.search input{border:0;outline:0;font:inherit;font-size:16px;flex:1;min-width:0;background:transparent;color:var(--ink)}
+.search input::-webkit-search-cancel-button{display:none}
+.hero{background:#fff;border-radius:28px;padding:clamp(26px,5vw,48px);margin-bottom:30px}
+.hero h1{font-family:var(--serif);font-weight:400;font-size:clamp(40px,7vw,72px);line-height:.98;margin:0 0 14px;max-width:14ch}
+.hero p{color:var(--muted);font-size:16px;line-height:1.55;margin:0 0 22px;max-width:46ch}
+.boards{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:22px 16px;margin-bottom:48px}
+.board{border:0;background:none;padding:0;text-align:left;cursor:pointer}
+.cover{aspect-ratio:4/5;border-radius:24px;overflow:hidden;display:grid;grid-template:1fr/1fr;position:relative;transition:transform .2s ease}
+.board:active .cover{transform:scale(.97)}
+.cover img{width:100%;height:100%;object-fit:cover;display:block}
+.cover img.broken{visibility:hidden}
+.cover.c4{grid-template:1fr 1fr/1fr 1fr;gap:3px}
+.cover.center{place-items:center}
+.cover .emo{font-size:60px;line-height:1}
+.coverquote{font-family:var(--serif);font-size:21px;line-height:1.1;padding:18px;align-self:center;overflow:hidden;display:-webkit-box;-webkit-line-clamp:6;-webkit-box-orient:vertical}
+.badge{position:absolute;left:10px;bottom:10px;background:#fff;border-radius:999px;width:38px;height:38px;display:grid;place-items:center;font-size:20px}
+.bname{font-family:var(--serif);font-size:26px;line-height:1;margin-top:10px}
+.bcount{font-size:13px;color:var(--muted);margin-top:3px}
+.newboard .cover{border:2px dashed #D5CEDD;color:var(--muted)}
+.sec{font-family:var(--serif);font-weight:400;font-size:36px;line-height:1;margin:0 0 16px}
+.grid{columns:2 160px;column-gap:12px}
+@media (min-width:700px){.grid{columns:210px;column-gap:14px}}
+.item{break-inside:avoid;margin-bottom:12px;border-radius:20px;overflow:hidden;cursor:pointer;position:relative;min-height:60px}
+.item .full{width:100%;display:block}
+.item img.broken{display:none}
+.pill{position:absolute;right:8px;top:8px;background:rgba(255,255,255,.93);border-radius:999px;padding:4px 9px;font-size:11px;font-weight:600;white-space:nowrap;max-width:80%;overflow:hidden;text-overflow:ellipsis}
+.cap{padding:10px 13px 13px;background:#fff}
+.cap .s{font-size:11px;color:var(--muted);margin-bottom:3px;text-transform:uppercase;letter-spacing:.04em}
+.cap .t{font-weight:600;font-size:14px;line-height:1.35}
+.price{display:inline-block;margin-top:6px;font-size:12px;font-weight:700;background:var(--bg);border-radius:999px;padding:3px 9px}
+.quote{padding:44px 20px 20px;font-family:var(--serif);font-size:24px;line-height:1.12;word-break:break-word}
+.quote .by{font-family:'Manrope',sans-serif;font-size:13px;font-weight:600;margin-top:12px}
+.linkcard{padding:44px 16px 16px;min-height:160px;display:flex;flex-direction:column;justify-content:space-between;gap:20px}
+.fav{width:38px;height:38px;border-radius:11px;background:#fff;padding:5px}
+.fav.broken{visibility:hidden}
+.linkcard .t{font-family:var(--serif);font-size:24px;line-height:1.02;word-break:break-word}
+.linkcard .s2{font-size:12px;font-weight:600;margin-top:8px;opacity:.7}
+.back{display:inline-flex;align-items:center;gap:2px;border:0;background:none;font-weight:600;cursor:pointer;padding:0;margin-bottom:14px}
+.boardhead{border-radius:28px;padding:26px;margin-bottom:22px;display:flex;align-items:flex-end;gap:16px;min-height:180px;position:relative;flex-wrap:wrap}
+.boardhead .emo{font-size:64px;line-height:1}
+.boardhead h1{font-family:var(--serif);font-weight:400;font-size:clamp(46px,8vw,88px);line-height:.9;margin:0;word-break:break-word}
+.boardhead .bcount{color:var(--ink);opacity:.65}
+.editb{position:absolute;top:14px;right:14px}
+.empty{border:2px dashed #D5CEDD;border-radius:24px;padding:48px 22px;text-align:center;color:var(--muted);line-height:1.5}
+.btn{height:46px;border-radius:999px;border:0;background:var(--ink);color:#fff;font-size:15px;font-weight:600;padding:0 20px;cursor:pointer;display:inline-flex;align-items:center;gap:8px;justify-content:center;white-space:nowrap;text-decoration:none}
+.btn.ghost{background:var(--bg);color:var(--ink)}
+.btn.soft{background:rgba(255,255,255,.75);color:var(--ink);height:38px;padding:0 14px;font-size:14px}
+.btn.danger{background:#E5484D}
+.btn.wide{width:100%}
+.btn:disabled{opacity:.4}
+.row{display:flex;gap:10px;flex-wrap:wrap;margin-top:20px}
+.fab{position:fixed;right:20px;bottom:calc(20px + env(safe-area-inset-bottom));width:62px;height:62px;border-radius:50%;background:var(--ink);color:#fff;border:0;display:grid;place-items:center;cursor:pointer;box-shadow:0 12px 30px rgba(27,22,34,.28);z-index:30}
+.sheetbg{position:fixed;inset:0;background:rgba(27,22,34,.42);z-index:40;display:flex;align-items:flex-end;justify-content:center}
+.sheet{background:#fff;width:min(620px,100%);border-radius:28px 28px 0 0;padding:12px 20px calc(26px + env(safe-area-inset-bottom));max-height:92vh;overflow:auto;animation:up .22s ease-out;-webkit-overflow-scrolling:touch}
+.sheet.still{animation:none}
+@media (min-width:720px){.sheetbg{align-items:center;padding:20px}.sheet{border-radius:28px}}
+@keyframes up{from{transform:translateY(36px);opacity:0}to{transform:none;opacity:1}}
+.grab{width:44px;height:5px;border-radius:9px;background:var(--line);margin:0 auto 16px}
+.pv{display:flex;justify-content:center;margin-bottom:16px}
+.pv img.big{max-height:300px;max-width:100%;border-radius:18px;display:block;background:var(--bg)}
+.pv .quote,.pv .linkcard{border-radius:20px;width:100%;padding-top:20px;min-height:0}
+.pv .quote{max-height:280px;overflow:auto}
+.pvfig{margin:0;width:100%;display:flex;flex-direction:column;align-items:center;gap:8px}
+.pvfig figcaption{text-align:center;font-size:14px;line-height:1.4;display:flex;flex-direction:column;gap:4px;align-items:center}
+.loader{width:38px;height:38px;border-radius:50%;border:3px solid rgba(27,22,34,.15);border-top-color:var(--ink);animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.ask{font-family:var(--serif);font-size:32px;line-height:1;margin:0 0 14px}
+.tiles{display:grid;grid-template-columns:repeat(4,1fr);gap:9px}
+@media (max-width:420px){.tiles{grid-template-columns:repeat(3,1fr)}}
+.tileb{border:0;border-radius:18px;padding:15px 4px 11px;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:7px;font-size:13px;font-weight:600;position:relative;word-break:break-word;text-align:center}
+.tileb:active{transform:scale(.95)}
+.tileb .e{font-size:30px;line-height:1}
+.tileb.sug{box-shadow:0 0 0 3px var(--ink)}
+.tileb.add{background:transparent;border:2px dashed #D5CEDD;color:var(--muted)}
+.more{border:0;background:none;font-size:14px;font-weight:600;text-decoration:underline;text-underline-offset:3px;cursor:pointer;padding:0;margin-top:16px}
+.input{width:100%;border:1px solid var(--line);border-radius:14px;padding:12px 14px;font:inherit;font-size:16px;outline:0;background:#fff;color:var(--ink);margin-top:10px;display:block}
+.input:focus{border-color:var(--ink)}
+textarea.input{resize:vertical;min-height:64px;line-height:1.5}
+.lbl{font-size:13px;color:var(--muted);font-weight:600;margin:18px 0 8px}
+.emojis{display:flex;flex-wrap:wrap;gap:6px}
+.emojis button{width:42px;height:42px;border-radius:12px;border:0;background:var(--bg);font-size:22px;cursor:pointer}
+.emojis button.on{box-shadow:0 0 0 2px var(--ink);background:#fff}
+.swatches{display:flex;gap:10px;flex-wrap:wrap}
+.swatches button{width:34px;height:34px;border-radius:50%;border:0;cursor:pointer}
+.swatches button.on{box-shadow:0 0 0 2px #fff,0 0 0 4px var(--ink)}
+.edprev{border-radius:22px;padding:18px;display:flex;align-items:center;gap:14px;font-family:var(--serif);font-size:30px;line-height:1}
+.edprev span{font-size:42px}
+.edprev b{font-weight:400}
+.moveto{display:flex;gap:8px;overflow-x:auto;padding:4px 2px 6px}
+.moveto button{flex:none;border:0;border-radius:999px;padding:9px 13px;font-size:13px;font-weight:600;cursor:pointer}
+.moveto button.on{box-shadow:0 0 0 2px var(--ink)}
+.pricebig{font-weight:700;margin:0 0 4px;text-align:center}
+.toast{position:fixed;left:50%;bottom:calc(96px + env(safe-area-inset-bottom));transform:translateX(-50%);background:var(--ink);color:#fff;border-radius:999px;padding:11px 18px;z-index:60;font-size:14px;max-width:calc(100vw - 40px);text-align:center}
+.codebox{max-width:380px;margin:16vh auto 0;text-align:center}
+.codebox .brand{font-size:72px;display:block;margin:0 auto 12px}
+.codebox p{color:var(--muted);line-height:1.5}
+.codebox .btn{margin-top:14px;width:100%}
+.err{color:#C4323A;font-size:14px;min-height:20px}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+<div id="app" class="app"></div>
+<input type="file" id="file" accept="image/*" hidden>
+<script>
+"use strict";
+
+const COLORS = ["#F4C6D7", "#FFB38A", "#B9D8C2", "#C9CCF5", "#D9F07A", "#E3D3F7", "#A9DDF2", "#F2DFA7", "#FFD6A5", "#CDEAC0"];
+const EMOJIS = ["👗", "👠", "💄", "💍", "👜", "🍝", "🥑", "🍰", "☕", "📚", "📖", "💬", "✍️", "💪", "🧘", "🏃", "🥗", "🕊️", "✨", "🌙", "🙏", "✈️", "🏝️", "🪴", "🏡", "🎨", "🎬", "🎵", "💡", "🛍️", "🧴", "🎁"];
+const NONE = { id: null, name: "À trier", emoji: "📥", color: "#E6E1EC" };
+
+const svg = (d, s = 20) => `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
+const ICON = {
+  plus: svg('<path d="M12 5v14M5 12h14"/>', 26),
+  plusS: svg('<path d="M12 5v14M5 12h14"/>', 18),
+  search: svg('<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>', 18),
+  back: svg('<path d="m15 18-6-6 6-6"/>', 20),
+  trash: svg('<path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/>', 16),
+  ext: svg('<path d="M14 4h6v6M20 4 10 14M19 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h5"/>', 16),
+  photo: svg('<rect x="3" y="5" width="18" height="14" rx="3"/><circle cx="9" cy="10" r="2"/><path d="m21 16-5-5-8 8"/>', 18),
+};
+
+const ls = {
+  get(k) { try { return localStorage.getItem(k) || ""; } catch { return ""; } },
+  set(k, v) { try { localStorage.setItem(k, v); } catch { /* stockage indisponible */ } },
+};
+
+const S = { code: ls.get("glane-code"), boards: [], items: [], view: "home", q: "", loading: false, sheet: null, pending: readShare() };
+const $app = document.getElementById("app");
+const $file = document.getElementById("file");
+let toastTimer = null;
+
+// ---------- Outils ----------
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const norm = (s) => String(s || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
+const clip = (s, n) => (s && s.length > n ? s.slice(0, n).trimEnd() + "…" : s || "");
+const plural = (n) => `${n} élément${n > 1 ? "s" : ""}`;
+const hostOf = (u) => { try { return new URL(u).hostname.replace(/^www\./, ""); } catch { return ""; } };
+const boardOf = (i) => S.boards.find((b) => b.id === i.board_id) || NONE;
+const itemsOf = (id) => S.items.filter((i) => (i.board_id || null) === id);
+const img = (src, cls = "") => `<img class="${cls}" src="${esc(src)}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.classList.add('broken')">`;
+
+function readShare() {
+  const p = new URLSearchParams(location.search);
+  const url = p.get("url"), text = p.get("text"), title = p.get("title");
+  if (!url && !text && !title) return null;
+  history.replaceState(null, "", "/");
+  return parseInput([url, text, title].filter(Boolean).join(" "), text || title);
+}
+
+function parseInput(raw, fallbackText) {
+  const t = String(raw || "").trim();
+  if (!t) return null;
+  const m = t.match(/https?:\/\/[^\s<>"]+/);
+  if (m && t.replace(m[0], "").trim().length < 120) return { kind: "link", url: m[0].replace(/[)\].,;!?»"']+$/, "") };
+  return { kind: "text", text: (fallbackText || t).trim() };
+}
+
+async function api(path, opts = {}) {
+  const r = await fetch("/api/" + path, {
+    method: opts.method || "GET",
+    headers: { "Content-Type": "application/json", "x-glane-code": S.code || "" },
+    body: opts.body ? JSON.stringify(opts.body) : undefined,
+  });
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) {
+    const err = new Error(data.error || `Erreur ${r.status}`);
+    err.status = r.status;
+    throw err;
+  }
+  return data;
+}
+
+function toast(msg) {
+  const el = document.getElementById("toast");
+  if (!el) return;
+  el.innerHTML = `<div class="toast" role="status">${esc(msg)}</div>`;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { el.innerHTML = ""; }, 3500);
+}
+
+function compress(file, max = 1400, quality = 0.85) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = reject;
+    reader.onload = () => {
+      const im = new Image();
+      im.onerror = reject;
+      im.onload = () => {
+        const s = Math.min(1, max / Math.max(im.width, im.height));
+        const c = document.createElement("canvas");
+        c.width = Math.round(im.width * s);
+        c.height = Math.round(im.height * s);
+        const ctx = c.getContext("2d");
+        ctx.fillStyle = "#fff";
+        ctx.fillRect(0, 0, c.width, c.height);
+        ctx.drawImage(im, 0, 0, c.width, c.height);
+        resolve(c.toDataURL("image/jpeg", quality));
+      };
+      im.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+// ---------- Démarrage et code d'accès ----------
+function renderCode(errMsg = "") {
+  S.sheet = null;
+  $app.innerHTML = `
+    <div class="codebox">
+      <span class="brand">glane</span>
+      <p>Entre ton code d'accès pour ouvrir ta bibliothèque.</p>
+      <input id="code" class="input" type="password" autocomplete="current-password" placeholder="Code d'accès">
+      <button class="btn" data-a="code-ok">Entrer</button>
+      <p id="codeerr" class="err">${esc(errMsg)}</p>
+    </div>`;
+}
+
+function logout(msg) {
+  S.code = "";
+  ls.set("glane-code", "");
+  renderCode(msg || "Code invalide, réessaie.");
+}
+
+function shell() {
+  $app.innerHTML = `
+    <header class="bar">
+      <button class="brand" data-a="home">glane</button>
+      <label class="search">${ICON.search}<input id="q" type="search" placeholder="Chercher : bague, pâtes, Rumi…" autocomplete="off" enterkeyhint="search"></label>
+    </header>
+    <main id="main"></main>
+    <button class="fab" data-a="add" aria-label="Ajouter">${ICON.plus}</button>
+    <div id="sheet"></div>
+    <div id="toast"></div>`;
+  document.getElementById("q").addEventListener("input", (e) => { S.q = e.target.value; renderMain(); });
+}
+
+async function start() {
+  if (!S.code) return renderCode("");
+  shell();
+  S.loading = true;
+  renderMain();
+  const ok = await load();
+  if (ok && S.pending) {
+    const p = S.pending;
+    S.pending = null;
+    openPick(p);
+  }
+}
+
+async function load() {
+  try {
+    const [b, i] = await Promise.all([api("boards"), api("items")]);
+    S.boards = b.boards || [];
+    S.items = i.items || [];
+    return true;
+  } catch (e) {
+    if (e.status === 401) { logout(); return false; }
+    toast("Chargement impossible : " + e.message);
+    return false;
+  } finally {
+    S.loading = false;
+    renderMain();
+  }
+}
+
+// ---------- Vues principales ----------
+function renderMain() {
+  const main = document.getElementById("main");
+  if (!main) return;
+  if (S.loading && !S.items.length) {
+    main.innerHTML = `<p class="muted">Ouverture de ta bibliothèque…</p>`;
+    return;
+  }
+  const q = norm(S.q);
+  if (q) {
+    const words = q.split(/\s+/);
+    const res = S.items.filter((i) => {
+      const hay = norm([i.title, i.url, i.text, i.note, i.site, i.price, boardOf(i).name].join(" "));
+      return words.every((w) => hay.includes(w));
+    });
+    main.innerHTML = `<h2 class="sec">${res.length ? res.length + " trouvé" + (res.length > 1 ? "s" : "") : "Rien trouvé"}</h2>`
+      + (res.length ? grid(res, true) : `<div class="empty">Essaie un autre mot, ou le nom d'un tableau.</div>`);
+    return;
+  }
+  if (S.view === "home") {
+    main.innerHTML = homeHtml();
+    return;
+  }
+  const b = S.view === "__none" ? NONE : S.boards.find((x) => x.id === S.view);
+  if (!b) {
+    S.view = "home";
+    return renderMain();
+  }
+  const items = itemsOf(b.id);
+  main.innerHTML = `
+    <button class="back" data-a="home">${ICON.back}Tableaux</button>
+    <div class="boardhead" style="background:${esc(b.color)}">
+      <span class="emo">${esc(b.emoji)}</span>
+      <div><h1>${esc(b.name)}</h1><div class="bcount">${plural(items.length)}</div></div>
+      ${b.id ? `<button class="btn soft editb" data-a="edit-board" data-id="${b.id}">Modifier</button>` : ""}
+    </div>
+    ${items.length ? grid(items, false) : `<div class="empty">Ce tableau est vide. Partage un lien ou une photo vers Glane, ou appuie sur +.</div>`}`;
+  window.scrollTo(0, 0);
+}
+
+function homeHtml() {
+  let h = "";
+  if (!S.items.length) {
+    h += `<section class="hero">
+      <h1>Garde ici tout ce qui t'inspire.</h1>
+      <p>Une bague repérée en ligne, une recette, une citation, une capture Insta. Partage-la vers Glane depuis n'importe quelle app, ou appuie sur +.</p>
+      <button class="btn" data-a="add">${ICON.plusS}Ajouter</button>
+    </section>`;
+  }
+  h += `<div class="boards">`;
+  for (const b of S.boards) {
+    const its = itemsOf(b.id);
+    h += `<button class="board" data-a="board" data-id="${b.id}">${cover(b, its)}<div class="bname">${esc(b.name)}</div><div class="bcount">${its.length ? plural(its.length) : "Vide"}</div></button>`;
+  }
+  const none = itemsOf(null);
+  if (none.length) {
+    h += `<button class="board" data-a="board" data-id="__none">${cover(NONE, none)}<div class="bname">À trier</div><div class="bcount">${none.length} à ranger</div></button>`;
+  }
+  h += `<button class="board newboard" data-a="new-board"><div class="cover center">${ICON.plus}</div><div class="bname">Nouveau</div><div class="bcount">Créer un tableau</div></button></div>`;
+  if (S.items.length) h += `<h2 class="sec">Derniers ajouts</h2>` + grid(S.items.slice(0, 40), true);
+  return h;
+}
+
+function cover(b, its) {
+  const bg = `style="background:${esc(b.color)}"`;
+  const badge = `<span class="badge">${esc(b.emoji)}</span>`;
+  const pics = its.map((i) => i.image_url).filter(Boolean).slice(0, 4);
+  if (pics.length >= 4) return `<div class="cover c4" ${bg}>${pics.map((p) => img(p)).join("")}${badge}</div>`;
+  if (pics.length) return `<div class="cover" ${bg}>${img(pics[0])}${badge}</div>`;
+  const q = its.find((i) => i.type === "text");
+  if (q) return `<div class="cover" ${bg}><div class="coverquote">“${esc(clip(q.text, 140))}”</div>${badge}</div>`;
+  return `<div class="cover center" ${bg}><span class="emo">${esc(b.emoji)}</span></div>`;
+}
+
+function grid(list, showBoard) {
+  return `<div class="grid">${list.map((i) => card(i, showBoard)).join("")}</div>`;
+}
+
+function linkCard(i) {
+  const host = hostOf(i.url);
+  const fav = host ? `<img class="fav" src="https://www.google.com/s2/favicons?domain=${encodeURIComponent(host)}&sz=64" alt="" onerror="this.classList.add('broken')">` : "<span></span>";
+  return `<div class="linkcard">${fav}<div><div class="t">${esc(i.title || host || "Lien")}</div><div class="s2">${esc(i.site || host)}${i.price ? " · " + esc(i.price) : ""}</div></div></div>`;
+}
+
+function card(i, showBoard) {
+  const b = boardOf(i);
+  let inner;
+  if (i.image_url) {
+    const hasCap = i.type === "image" ? !!i.title : !!(i.title || i.site || i.price);
+    inner = img(i.image_url, "full") + (hasCap
+      ? `<div class="cap">${i.type === "link" && i.site ? `<div class="s">${esc(i.site)}</div>` : ""}${i.title ? `<div class="t">${esc(clip(i.title, 90))}</div>` : ""}${i.price ? `<span class="price">${esc(i.price)}</span>` : ""}</div>`
+      : "");
+  } else if (i.type === "text") {
+    inner = `<div class="quote">“${esc(clip(i.text, 260))}”${i.title ? `<div class="by">${esc(i.title)}</div>` : ""}</div>`;
+  } else {
+    inner = linkCard(i);
+  }
+  return `<div class="item" role="button" tabindex="0" data-a="item" data-id="${i.id}" style="background:${esc(b.color)}">${inner}${showBoard ? `<span class="pill">${esc(b.emoji)} ${esc(b.name)}</span>` : ""}</div>`;
+}
+
+// ---------- Panneaux ----------
+function openSheet(s) {
+  S.sheet = s;
+  renderSheet();
+}
+
+function closeSheet() {
+  S.sheet = S.sheet && S.sheet.parent ? S.sheet.parent : null;
+  renderSheet();
+}
+
+function renderSheet() {
+  const el = document.getElementById("sheet");
+  if (!el) return;
+  const s = S.sheet;
+  if (!s) {
+    el.innerHTML = "";
+    document.body.classList.remove("locked");
+    return;
+  }
+  const inner = s.kind === "add" ? addSheet() : s.kind === "pick" ? pickSheet(s) : s.kind === "detail" ? detailSheet(s) : boardSheet(s);
+  el.innerHTML = `<div class="sheetbg" data-a="backdrop"><div class="sheet ${s.shown ? "still" : ""}" role="dialog" aria-modal="true"><div class="grab"></div>${inner}</div></div>`;
+  s.shown = true;
+  document.body.classList.add("locked");
+}
+
+function addSheet() {
+  return `
+    <p class="ask">Ajouter</p>
+    <button class="btn wide" data-a="photo">${ICON.photo}Choisir une photo ou une capture</button>
+    <div class="lbl">Ou colle un lien, une citation, une idée</div>
+    <textarea id="addtext" class="input" rows="4" placeholder="https://… ou « Ce qui est pour toi ne te passera pas à côté »"></textarea>
+    <div class="row">
+      <button class="btn" data-a="add-next">Continuer</button>
+      <button class="btn ghost" data-a="close">Annuler</button>
+    </div>`;
+}
+
+function openPick(p) {
+  if (!p) return;
+  const view = S.view !== "home" && S.view !== "__none" ? S.view : null;
+  const s = { kind: "pick", payload: p, title: "", note: "", more: false, saving: false, preview: null, previewState: p.kind === "link" ? "loading" : "none", suggest: view };
+  openSheet(s);
+  if (p.kind === "link") {
+    api("preview?url=" + encodeURIComponent(p.url))
+      .then((pr) => { s.preview = pr; s.previewState = "done"; })
+      .catch((e) => { if (e.status === 401) return logout(); s.previewState = "fail"; })
+      .finally(() => {
+        const pv = document.getElementById("pv");
+        if (S.sheet === s && pv && !s.saving) pv.innerHTML = pickPreview(s);
+      });
+  }
+}
+
+function pickPreview(s) {
+  const p = s.payload;
+  if (p.kind === "image") return `<img class="big" src="${p.dataUrl}" alt="">`;
+  if (p.kind === "text") return `<div class="quote" style="background:#C9CCF5">“${esc(clip(p.text, 400))}”</div>`;
+  const host = hostOf(p.url);
+  if (s.previewState === "loading") {
+    return `<div class="linkcard" style="background:var(--bg)"><div class="loader"></div><div><div class="t">${esc(host)}</div><div class="s2">Je cherche l'image…</div></div></div>`;
+  }
+  const pr = s.preview || {};
+  if (pr.image) {
+    return `<figure class="pvfig">${img(pr.image, "big")}<figcaption>${pr.title ? `<b>${esc(clip(pr.title, 90))}</b>` : ""}${pr.price ? `<span class="price">${esc(pr.price)}</span>` : ""}</figcaption></figure>`;
+  }
+  return `<div class="linkcard" style="background:#E6E1EC"><span></span><div><div class="t">${esc(pr.title || host)}</div><div class="s2">Pas d'image trouvée sur ce site. Tu peux partager une capture d'écran à la place.</div></div></div>`;
+}
+
+function pickSheet(s) {
+  if (s.saving) {
+    return `<div id="pv" class="pv">${pickPreview(s)}</div>
+      <p class="ask">Je range…</p>
+      <p class="muted">${s.payload.kind === "link" ? "Je garde une copie de l'image et les infos du produit." : "Envoi en cours."}</p>`;
+  }
+  const tiles = S.boards.map((b) => `<button class="tileb ${s.suggest === b.id ? "sug" : ""}" style="background:${esc(b.color)}" data-a="pick" data-id="${b.id}"><span class="e">${esc(b.emoji)}</span>${esc(b.name)}</button>`).join("");
+  const isText = s.payload.kind === "text";
+  return `
+    <div id="pv" class="pv">${pickPreview(s)}</div>
+    <p class="ask">Où tu le ranges ?</p>
+    <div class="tiles">${tiles}<button class="tileb add" data-a="new-board-pick"><span class="e">＋</span>Nouveau</button></div>
+    <button class="more" data-a="more">${s.more ? "Masquer les détails" : "Ajouter un titre ou une note"}</button>
+    ${s.more ? `
+      <input class="input" data-field="title" value="${esc(s.title)}" placeholder="${isText ? "Auteur" : "Titre"}">
+      <textarea class="input" rows="2" data-field="note" placeholder="Pourquoi tu le gardes">${esc(s.note)}</textarea>` : ""}
+    <div class="row">
+      <button class="btn ghost" data-a="pick" data-id="">Ranger plus tard</button>
+      <button class="btn ghost" data-a="close">Annuler</button>
+    </div>`;
+}
+
+async function save(boardId, boardHint) {
+  const s = S.sheet && S.sheet.kind === "pick" ? S.sheet : null;
+  if (!s || s.saving) return;
+  s.saving = true;
+  renderSheet();
+  const p = s.payload;
+  const body = { board_id: boardId || null, title: s.title.trim() || null, note: s.note.trim() || null };
+  if (p.kind === "link") {
+    body.url = p.url;
+    if (s.preview && s.preview.image && !s.preview.isImage) body.preview = s.preview;
+  }
+  if (p.kind === "text") body.text = p.text;
+  if (p.kind === "image") body.image_base64 = p.b64;
+  try {
+    const { item } = await api("items", { method: "POST", body });
+    S.items.unshift(item);
+    if (S.sheet === s) S.sheet = null;
+    renderSheet();
+    renderMain();
+    const b = boardHint || S.boards.find((x) => x.id === boardId);
+    toast(b ? `Rangé dans ${b.emoji} ${b.name}` : "Mis de côté dans 📥 À trier");
+  } catch (e) {
+    if (e.status === 401) return logout();
+    s.saving = false;
+    if (S.sheet === s) renderSheet();
+    toast("Échec de l'enregistrement : " + e.message);
+  }
+}
+
+function openDetail(id) {
+  const i = S.items.find((x) => x.id === id);
+  if (!i) return;
+  openSheet({ kind: "detail", id, title: i.title || "", note: i.note || "", text: i.text || "", board_id: i.board_id || null, armed: false });
+}
+
+function detailSheet(s) {
+  const i = S.items.find((x) => x.id === s.id);
+  if (!i) return `<p>Cet élément n'existe plus.</p>`;
+  const b = boardOf(i);
+  const media = i.image_url
+    ? img(i.image_url, "big")
+    : i.type === "text"
+      ? `<div class="quote" style="background:${esc(b.color)}">“${esc(i.text)}”</div>`
+      : `<div style="width:100%;border-radius:20px;overflow:hidden;background:${esc(b.color)}">${linkCard(i)}</div>`;
+  const chips = [...S.boards, NONE].map((x) => `<button class="${(s.board_id || null) === x.id ? "on" : ""}" style="background:${esc(x.color)}" data-a="detail-board" data-id="${x.id || ""}">${esc(x.emoji)} ${esc(x.name)}</button>`).join("");
+  return `
+    <div class="pv">${media}</div>
+    ${i.price ? `<p class="pricebig">${esc(i.price)}${i.site ? " · " + esc(i.site) : ""}</p>` : ""}
+    ${i.type === "text" ? `<textarea class="input" rows="3" data-field="text">${esc(s.text)}</textarea>` : ""}
+    <input class="input" data-field="title" value="${esc(s.title)}" placeholder="${i.type === "text" ? "Auteur" : "Titre"}">
+    <textarea class="input" rows="2" data-field="note" placeholder="Une note pour toi">${esc(s.note)}</textarea>
+    <div class="lbl">Tableau</div>
+    <div class="moveto">${chips}</div>
+    <div class="row">
+      <button class="btn" data-a="detail-save">Enregistrer</button>
+      ${i.url ? `<a class="btn ghost" href="${esc(i.url)}" target="_blank" rel="noopener">${ICON.ext}Ouvrir</a>` : ""}
+      <button class="btn ${s.armed ? "danger" : "ghost"}" data-a="detail-delete">${ICON.trash}${s.armed ? "Confirmer" : "Supprimer"}</button>
+    </div>`;
+}
+
+function boardSheet(s) {
+  return `
+    <p class="ask">${s.id ? "Modifier le tableau" : "Nouveau tableau"}</p>
+    <div class="edprev" id="edprev" style="background:${esc(s.color)}"><span>${esc(s.emoji)}</span><b>${esc(s.name || "Nom du tableau")}</b></div>
+    <input class="input" data-field="name" value="${esc(s.name)}" placeholder="Par exemple Bijoux, Recettes, Skincare" maxlength="40">
+    <div class="lbl">Emoji</div>
+    <div class="emojis">${EMOJIS.map((e) => `<button class="${s.emoji === e ? "on" : ""}" data-a="emoji" data-v="${e}">${e}</button>`).join("")}</div>
+    <div class="lbl">Couleur</div>
+    <div class="swatches">${COLORS.map((c) => `<button class="${s.color === c ? "on" : ""}" style="background:${c}" data-a="color" data-v="${c}" aria-label="Couleur ${c}"></button>`).join("")}</div>
+    <div class="row">
+      <button class="btn" data-a="board-save">${s.id ? "Enregistrer" : "Créer"}</button>
+      <button class="btn ghost" data-a="close">Annuler</button>
+      ${s.id ? `<button class="btn ${s.armed ? "danger" : "ghost"}" data-a="board-delete">${s.armed ? "Confirmer la suppression" : "Supprimer"}</button>` : ""}
+    </div>`;
+}
+
+const newBoardSheet = (parent) => ({ kind: "board", id: null, name: "", emoji: "✨", color: COLORS[S.boards.length % COLORS.length], armed: false, parent });
+
+// ---------- Actions ----------
+const ACTIONS = {
+  async "code-ok"() {
+    const input = document.getElementById("code");
+    const val = (input && input.value || "").trim();
+    if (!val) return;
+    S.code = val;
+    try {
+      await api("boards");
+      ls.set("glane-code", val);
+      start();
+    } catch (e) {
+      S.code = "";
+      document.getElementById("codeerr").textContent = e.status === 401 ? "Code invalide, réessaie." : "Serveur injoignable : " + e.message;
+    }
+  },
+  home() { S.view = "home"; S.q = ""; const q = document.getElementById("q"); if (q) q.value = ""; renderMain(); window.scrollTo(0, 0); },
+  board(el) { S.view = el.dataset.id; renderMain(); },
+  add() { openSheet({ kind: "add" }); },
+  photo() { $file.click(); },
+  "add-next"() {
+    const p = parseInput(document.getElementById("addtext").value);
+    if (!p) return toast("Colle un lien ou écris quelque chose");
+    openPick(p);
+  },
+  pick(el) {
+    save(el.dataset.id || null);
+  },
+  more() { S.sheet.more = !S.sheet.more; renderSheet(); },
+  item(el) { openDetail(el.dataset.id); },
+  "detail-board"(el) { S.sheet.board_id = el.dataset.id || null; renderSheet(); },
+  async "detail-save"() {
+    const s = S.sheet;
+    const i = S.items.find((x) => x.id === s.id);
+    const body = { title: s.title, note: s.note, board_id: s.board_id };
+    if (i && i.type === "text") body.text = s.text;
+    try {
+      const { item } = await api("items?id=" + s.id, { method: "PATCH", body });
+      S.items = S.items.map((x) => (x.id === item.id ? item : x));
+      S.sheet = null;
+      renderSheet();
+      renderMain();
+      toast("Enregistré");
+    } catch (e) {
+      if (e.status === 401) return logout();
+      toast("Échec : " + e.message);
+    }
+  },
+  async "detail-delete"() {
+    const s = S.sheet;
+    if (!s.armed) { s.armed = true; return renderSheet(); }
+    try {
+      await api("items?id=" + s.id, { method: "DELETE" });
+      S.items = S.items.filter((x) => x.id !== s.id);
+      S.sheet = null;
+      renderSheet();
+      renderMain();
+      toast("Supprimé");
+    } catch (e) {
+      if (e.status === 401) return logout();
+      toast("Échec : " + e.message);
+    }
+  },
+  "new-board"() { openSheet(newBoardSheet(null)); },
+  "new-board-pick"() { openSheet(newBoardSheet(S.sheet)); },
+  "edit-board"(el) {
+    const b = S.boards.find((x) => x.id === el.dataset.id);
+    if (b) openSheet({ kind: "board", id: b.id, name: b.name, emoji: b.emoji, color: b.color, armed: false });
+  },
+  emoji(el) { S.sheet.emoji = el.dataset.v; renderSheet(); },
+  color(el) { S.sheet.color = el.dataset.v; renderSheet(); },
+  async "board-save"() {
+    const s = S.sheet;
+    const name = s.name.trim();
+    if (!name) return toast("Donne un nom au tableau");
+    try {
+      if (s.id) {
+        const { board } = await api("boards?id=" + s.id, { method: "PATCH", body: { name, emoji: s.emoji, color: s.color } });
+        S.boards = S.boards.map((b) => (b.id === board.id ? board : b));
+        S.sheet = null;
+        renderSheet();
+        renderMain();
+        return;
+      }
+      const { board } = await api("boards", { method: "POST", body: { name, emoji: s.emoji, color: s.color } });
+      S.boards.push(board);
+      if (s.parent) {
+        S.sheet = s.parent;
+        renderSheet();
+        renderMain();
+        save(board.id, board);
+      } else {
+        S.sheet = null;
+        renderSheet();
+        S.view = board.id;
+        renderMain();
+      }
+    } catch (e) {
+      if (e.status === 401) return logout();
+      toast("Échec : " + e.message);
+    }
+  },
+  async "board-delete"() {
+    const s = S.sheet;
+    if (!s.armed) { s.armed = true; return renderSheet(); }
+    try {
+      await api("boards?id=" + s.id, { method: "DELETE" });
+      S.boards = S.boards.filter((b) => b.id !== s.id);
+      S.items = S.items.map((i) => (i.board_id === s.id ? { ...i, board_id: null } : i));
+      S.sheet = null;
+      S.view = "home";
+      renderSheet();
+      renderMain();
+      toast("Tableau supprimé, son contenu est dans 📥 À trier");
+    } catch (e) {
+      if (e.status === 401) return logout();
+      toast("Échec : " + e.message);
+    }
+  },
+  close() { closeSheet(); },
+};
+
+document.addEventListener("click", (e) => {
+  const el = e.target.closest("[data-a]");
+  if (!el) return;
+  const a = el.dataset.a;
+  if (a === "backdrop") {
+    if (e.target === el) closeSheet();
+    return;
+  }
+  const fn = ACTIONS[a];
+  if (fn) {
+    e.preventDefault();
+    fn(el);
+  }
+});
+
+document.addEventListener("input", (e) => {
+  const f = e.target.dataset && e.target.dataset.field;
+  if (!f || !S.sheet) return;
+  S.sheet[f] = e.target.value;
+  if (f === "name") {
+    const b = document.querySelector("#edprev b");
+    if (b) b.textContent = e.target.value || "Nom du tableau";
+  }
+});
+
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && S.sheet) return closeSheet();
+  if (e.key === "Enter") {
+    if (e.target.id === "code") return ACTIONS["code-ok"]();
+    const item = e.target.closest && e.target.closest('[data-a="item"]');
+    if (item && e.target === item) openDetail(item.dataset.id);
+  }
+});
+
+$file.addEventListener("change", async () => {
+  const f = $file.files[0];
+  $file.value = "";
+  if (!f) return;
+  try {
+    const dataUrl = await compress(f);
+    openPick({ kind: "image", dataUrl, b64: dataUrl.split(",")[1] });
+  } catch {
+    toast("Impossible de lire cette image");
+  }
+});
+
+// Sur ordinateur : coller ou glisser-déposer
+window.addEventListener("paste", async (e) => {
+  if (!S.code || S.sheet) return;
+  const tag = (e.target.tagName || "").toLowerCase();
+  if (tag === "input" || tag === "textarea") return;
+  const cd = e.clipboardData;
+  if (!cd) return;
+  const file = [...(cd.files || [])].find((f) => f.type.startsWith("image/"));
+  if (file) {
+    e.preventDefault();
+    const dataUrl = await compress(file);
+    return openPick({ kind: "image", dataUrl, b64: dataUrl.split(",")[1] });
+  }
+  const t = cd.getData("text/plain");
+  if (t) {
+    e.preventDefault();
+    openPick(parseInput(t));
+  }
+});
+window.addEventListener("dragover", (e) => e.preventDefault());
+window.addEventListener("drop", async (e) => {
+  e.preventDefault();
+  if (!S.code || S.sheet) return;
+  const dt = e.dataTransfer;
+  const file = [...(dt.files || [])].find((f) => f.type.startsWith("image/"));
+  if (file) {
+    const dataUrl = await compress(file);
+    return openPick({ kind: "image", dataUrl, b64: dataUrl.split(",")[1] });
+  }
+  const t = (dt.getData("text/uri-list") || "").split(/\r?\n/).find((l) => l && !l.startsWith("#")) || dt.getData("text/plain");
+  if (t) openPick(parseInput(t));
+});
+
+if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});
+start();
+</script>
+</body>
+</html>

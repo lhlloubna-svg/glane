@@ -1,7 +1,12 @@
 {
   "functions": {
-    "api/*.js": { "maxDuration": 30 }
+    "api/index.js": { "maxDuration": 30 }
   },
+  "rewrites": [
+    { "source": "/api/boards", "destination": "/api?route=boards" },
+    { "source": "/api/items", "destination": "/api?route=items" },
+    { "source": "/api/preview", "destination": "/api?route=preview" }
+  ],
   "headers": [
     { "source": "/sw.js", "headers": [{ "key": "Cache-Control", "value": "no-cache" }] },
     { "source": "/manifest.json", "headers": [{ "key": "Content-Type", "value": "application/manifest+json" }] }
