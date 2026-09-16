@@ -19,13 +19,13 @@ const BUCKET = "glane";
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const DEFAULT_BOARDS = [
-  { name: "Fashion", slug: "fashion", color: "#D9D6CF", kind: "collection" },
-  { name: "Food", slug: "food", color: "#D6CCBC", kind: "collection" },
-  { name: "Reading", slug: "reading", color: "#C9CCBC", kind: "collection" },
-  { name: "Quotes", slug: "quotes", color: "#C8CED3", kind: "collection" },
-  { name: "Fitness", slug: "fitness", color: "#BFC7C3", kind: "collection" },
-  { name: "Spiritual", slug: "spiritual", color: "#D0C8BD", kind: "collection" },
-  { name: "Events", slug: "events", color: "#DDD8CE", kind: "events" },
+  { name: "Fashion", slug: "fashion", emoji: "shirt", color: "#D9D6CF", kind: "collection" },
+  { name: "Food", slug: "food", emoji: "utensils", color: "#D6CCBC", kind: "collection" },
+  { name: "Reading", slug: "reading", emoji: "book", color: "#C9CCBC", kind: "collection" },
+  { name: "Quotes", slug: "quotes", emoji: "quote", color: "#C8CED3", kind: "collection" },
+  { name: "Fitness", slug: "fitness", emoji: "dumbbell", color: "#BFC7C3", kind: "collection" },
+  { name: "Spiritual", slug: "spiritual", emoji: "leaf", color: "#D0C8BD", kind: "collection" },
+  { name: "Events", slug: "events", emoji: "calendar", color: "#DDD8CE", kind: "events" },
 ];
 
 function sbHeaders(extra = {}) {
@@ -460,6 +460,7 @@ const { db, requireUser, readBody, clip, UUID } = require("./_lib");
 
 const HEX = /^#[0-9a-f]{6}$/i;
 const KINDS = ["collection", "events"];
+const ICON = /^[a-z]{2,20}$/; // nom d'icône, rangé dans la colonne emoji
 
 module.exports = async (req, res) => {
   try {
@@ -487,6 +488,7 @@ module.exports = async (req, res) => {
         body: {
           user_id: user.id,
           name,
+          emoji: ICON.test(b.icon || "") ? b.icon : "bookmark",
           color: HEX.test(b.color || "") ? b.color : "#D9D6CF",
           kind: KINDS.includes(b.kind) ? b.kind : "collection",
           position: last.length ? last[0].position + 1 : 0,
@@ -505,6 +507,7 @@ module.exports = async (req, res) => {
       if (clip(b.name, 40)) patch.name = clip(b.name, 40);
       if (HEX.test(b.color || "")) patch.color = b.color;
       if (KINDS.includes(b.kind)) patch.kind = b.kind;
+      if (ICON.test(b.icon || "")) patch.emoji = b.icon;
       const rows = Object.keys(patch).length
         ? await db(target, { method: "PATCH", body: patch })
         : await db(`${target}&select=*`);
