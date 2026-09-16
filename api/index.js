@@ -1,5 +1,5 @@
-// Glane : toute la partie serveur dans un seul fichier.
-// À placer dans le dépôt sous le nom api/index.js
+// Glane : the whole server in a single file.
+// Lives in the repository as api/index.js
 const __mods = {};
 const __load = (n) => (n.startsWith("./") ? __mods[n.slice(2)] : require(n));
 function __def(name, fn) {
@@ -10,16 +10,28 @@ function __def(name, fn) {
 
 // ===== _lib =====
 __def("_lib", (module, exports, require) => {
-// Utilitaires partagés par les fonctions serveur (les fichiers commençant par _ ne sont pas exposés par Vercel)
+// Utilitaires partagés : accès Supabase, stockage des images, comptes utilisateurs
+const crypto = require("crypto");
+
 const SB_URL = (process.env.SUPABASE_URL || "").replace(/\/$/, "");
 const SB_KEY = process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || "";
 const BUCKET = "glane";
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+const DEFAULT_BOARDS = [
+  { name: "Fashion", slug: "fashion", color: "#D9D6CF", kind: "collection" },
+  { name: "Food", slug: "food", color: "#D6CCBC", kind: "collection" },
+  { name: "Reading", slug: "reading", color: "#C9CCBC", kind: "collection" },
+  { name: "Quotes", slug: "quotes", color: "#C8CED3", kind: "collection" },
+  { name: "Fitness", slug: "fitness", color: "#BFC7C3", kind: "collection" },
+  { name: "Spiritual", slug: "spiritual", color: "#D0C8BD", kind: "collection" },
+  { name: "Events", slug: "events", color: "#DDD8CE", kind: "events" },
+];
+
 function sbHeaders(extra = {}) {
   const h = { apikey: SB_KEY, ...extra };
   // Les anciennes clés (JWT) passent aussi en Bearer ; les nouvelles clés sb_secret_ passent par apikey
-  if (!SB_KEY.startsWith("sb_")) h.Authorization = `Bearer ${SB_KEY}`;
+  if (!SB_KEY.startsWith("sb_") && !h.Authorization) h.Authorization = `Bearer ${SB_KEY}`;
   return h;
 }
 
@@ -30,8 +42,18 @@ async function db(path, { method = "GET", body } = {}) {
     body: body ? JSON.stringify(body) : undefined,
   });
   const t = await r.text();
-  if (!r.ok) throw new Error(`Base de données (${r.status}) : ${t.slice(0, 200)}`);
+  if (!r.ok) throw new Error(`Database error (${r.status}): ${t.slice(0, 200)}`);
   return t ? JSON.parse(t) : null;
+}
+
+// Appels au service de comptes de Supabase (Auth)
+async function authFetch(path, { method = "POST", body, token } = {}) {
+  const headers = sbHeaders({ "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) });
+  const r = await fetch(`${SB_URL}/auth/v1/${path}`, { method, headers, body: body ? JSON.stringify(body) : undefined });
+  const t = await r.text();
+  let data = {};
+  try { data = t ? JSON.parse(t) : {}; } catch { data = {}; }
+  return { ok: r.ok, status: r.status, data };
 }
 
 async function uploadImage(buffer, contentType, name) {
@@ -42,34 +64,57 @@ async function uploadImage(buffer, contentType, name) {
     headers: sbHeaders({ "Content-Type": contentType, "x-upsert": "true" }),
     body: buffer,
   });
-  if (!r.ok) throw new Error(`Stockage (${r.status}) : ${(await r.text()).slice(0, 200)}`);
+  if (!r.ok) throw new Error(`Storage error (${r.status}): ${(await r.text()).slice(0, 200)}`);
   return { path, url: `${SB_URL}/storage/v1/object/public/${BUCKET}/${path}` };
 }
 
-async function deleteImage(path) {
-  if (!path) return;
-  try {
-    await fetch(`${SB_URL}/storage/v1/object/${BUCKET}`, {
-      method: "DELETE",
-      headers: sbHeaders({ "Content-Type": "application/json" }),
-      body: JSON.stringify({ prefixes: [path] }),
-    });
-  } catch {
-    // l'image restera dans le stockage, sans conséquence
+async function deleteImages(paths) {
+  const list = (paths || []).filter(Boolean);
+  for (let i = 0; i < list.length; i += 100) {
+    try {
+      await fetch(`${SB_URL}/storage/v1/object/${BUCKET}`, {
+        method: "DELETE",
+        headers: sbHeaders({ "Content-Type": "application/json" }),
+        body: JSON.stringify({ prefixes: list.slice(i, i + 100) }),
+      });
+    } catch {
+      // les images resteront dans le stockage, sans conséquence
+    }
   }
 }
+const deleteImage = (path) => deleteImages([path]);
 
-function guard(req, res) {
-  if (!SB_URL || !SB_KEY || !process.env.GLANE_CODE) {
-    res.status(500).json({ error: "Variables d'environnement manquantes sur Vercel (SUPABASE_URL, SUPABASE_SECRET_KEY, GLANE_CODE)" });
-    return false;
-  }
-  const code = req.headers["x-glane-code"] || (req.query && req.query.code);
-  if (code !== process.env.GLANE_CODE) {
-    res.status(401).json({ error: "Code invalide" });
+function configured(res) {
+  if (!SB_URL || !SB_KEY) {
+    res.status(500).json({ error: "Missing environment variables on Vercel (SUPABASE_URL, SUPABASE_SECRET_KEY)" });
     return false;
   }
   return true;
+}
+
+// Qui fait la requête ? Soit l'app (jeton de session), soit un Raccourci (clé de partage personnelle)
+async function currentUser(req) {
+  const m = String(req.headers.authorization || "").match(/^Bearer\s+(\S+)$/i);
+  if (m) {
+    const r = await authFetch("user", { method: "GET", token: m[1] });
+    return r.ok && r.data && r.data.id ? { id: r.data.id, email: r.data.email || null, token: m[1], viaKey: false } : null;
+  }
+  const key = String(req.headers["x-glane-key"] || (req.query && req.query.key) || "");
+  if (/^[A-Za-z0-9_-]{24,64}$/.test(key)) {
+    const rows = await db(`profiles?share_key=eq.${key}&select=user_id`);
+    if (rows.length) return { id: rows[0].user_id, email: null, token: null, viaKey: true };
+  }
+  return null;
+}
+
+async function requireUser(req, res) {
+  if (!configured(res)) return null;
+  const user = await currentUser(req);
+  if (!user) {
+    res.status(401).json({ error: "Please sign in again" });
+    return null;
+  }
+  return user;
 }
 
 function readBody(req) {
@@ -80,10 +125,15 @@ function readBody(req) {
   return req.body;
 }
 
+const newKey = () => crypto.randomBytes(24).toString("base64url");
+const validDate = (d) => (typeof d === "string" && /^\d{4}-\d{2}-\d{2}$/.test(d) ? d : null);
 const clip = (s, n) => (typeof s === "string" && s.trim() ? s.trim().slice(0, n) : null);
-const norm = (s) => String(s || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/\s+/g, " ").trim();
+const norm = (s) => String(s || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\p{Extended_Pictographic}|\uFE0F/gu, "").toLowerCase().replace(/\s+/g, " ").trim();
 
-module.exports = { db, uploadImage, deleteImage, guard, readBody, clip, norm, UUID };
+module.exports = {
+  db, authFetch, uploadImage, deleteImage, deleteImages, configured, currentUser, requireUser,
+  readBody, newKey, validDate, clip, norm, UUID, DEFAULT_BOARDS,
+};
 
 });
 
@@ -94,9 +144,11 @@ const UA_BROWSER = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) Apple
 const UA_BOT = "facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)";
 
 function timedFetch(url, opts = {}, ms = 6000) {
+  // Le minuteur n'est pas annulé à la réception des en-têtes : il limite aussi la lecture du contenu
   const c = new AbortController();
   const t = setTimeout(() => c.abort(), ms);
-  return fetch(url, { ...opts, redirect: "follow", signal: c.signal }).finally(() => clearTimeout(t));
+  if (t.unref) t.unref();
+  return fetch(url, { ...opts, redirect: "follow", signal: c.signal });
 }
 
 const decode = (s) => String(s || "")
@@ -106,6 +158,9 @@ const decode = (s) => String(s || "")
   .replace(/&amp;/g, "&")
   .replace(/\s+/g, " ")
   .trim();
+
+// Titres typiques des pages anti-robot (Cloudflare, Akamai, etc.)
+const BLOCKED = /^\s*(access denied|just a moment|attention required|403 forbidden|forbidden|are you a robot|pardon our interruption|verify you are human|robot check|request unsuccessful|security check|captcha|not acceptable|site maintenance|page not found|service unavailable|bad gateway|error\s*\d{3}|\d{3}\s*(error|forbidden|not found))\s*($|[|:!.\u2013\u2014-])/i;
 
 const hostOf = (u) => { try { return new URL(u).hostname.replace(/^www\./, ""); } catch { return null; } };
 
@@ -143,7 +198,7 @@ const firstImage = (img) => (!img ? null : typeof img === "string" ? img : Array
 function parse(html, baseUrl) {
   const m = metaReader(html);
   let image = m("og:image:secure_url", "og:image", "og:image:url", "twitter:image", "twitter:image:src", "image");
-  let title = m("og:title", "twitter:title") || decode((html.match(/<title[^>]*>([\s\S]*?)<\/title>/i) || [])[1]);
+  let title = m("og:title", "twitter:title");
   const site = m("og:site_name", "application-name") || hostOf(baseUrl);
   let amount = m("product:price:amount", "og:price:amount", "price");
   let currency = m("product:price:currency", "og:price:currency", "pricecurrency");
@@ -165,6 +220,8 @@ function parse(html, baseUrl) {
     }
   }
 
+  // Ordre de préférence du titre : balises d'aperçu, puis nom du produit, puis titre de la page
+  if (!title) title = decode((html.match(/<title[^>]*>([\s\S]*?)<\/title>/i) || [])[1]);
   if (image) {
     try { image = new URL(decode(image), baseUrl).href; } catch { image = null; }
     if (image && !/^https?:\/\//i.test(image)) image = null;
@@ -177,25 +234,72 @@ function parse(html, baseUrl) {
   };
 }
 
+function titleFromUrl(u) {
+  try {
+    const segs = decodeURIComponent(new URL(u).pathname).split("/").filter(Boolean)
+      .map((x) => x
+        .replace(/\.[a-z0-9]{2,5}$/i, "")
+        .replace(/--?id\d+/gi, "")
+        .replace(/\b[a-z]*\d{5,}[a-z0-9]*\b/gi, "")
+        .replace(/[-_+]+/g, " ")
+        .trim())
+      .filter((x) => x.length > 2 && /[a-z]/i.test(x)
+        && !(/\d/.test(x) && !/\s/.test(x) && x.length >= 6)
+        && !/^[a-z]{2}(\s[a-z]{2})?$/i.test(x)
+        && !/^(dp|product|products|item|items|shop|store|html|index|detail|details|collections?)$/i.test(x));
+    const pick = segs.slice(-2).join(" · ");
+    return pick ? pick.replace(/\b\w/g, (c) => c.toUpperCase()).slice(0, 100) : null;
+  } catch {
+    return null;
+  }
+}
+
+// Service tiers gratuit (quota limité) qui sait souvent passer là où une requête simple est bloquée
+async function microlink(url) {
+  try {
+    const r = await timedFetch(`https://api.microlink.io/?url=${encodeURIComponent(url)}`, { headers: { Accept: "application/json" } }, 8000);
+    if (!r.ok) return {};
+    const j = await r.json();
+    if (j.status !== "success" || !j.data) return {};
+    const d = j.data;
+    if (d.title && BLOCKED.test(d.title)) return {};
+    const image = d.image && /^https?:\/\//i.test(d.image.url || "") ? d.image.url : null;
+    return {
+      title: d.title ? decode(d.title).slice(0, 140) : null,
+      image,
+      site: d.publisher ? String(d.publisher).slice(0, 80) : null,
+    };
+  } catch {
+    return {};
+  }
+}
+
 async function getPreview(url) {
   const result = {};
   for (const ua of [UA_BROWSER, UA_BOT]) {
     try {
       const r = await timedFetch(url, {
-        headers: { "User-Agent": ua, Accept: "text/html,application/xhtml+xml,image/*;q=0.8,*/*;q=0.5", "Accept-Language": "fr-FR,fr;q=0.9,en;q=0.8" },
-      });
+        headers: { "User-Agent": ua, Accept: "text/html,application/xhtml+xml,image/*;q=0.8,*/*;q=0.5", "Accept-Language": "en-GB,en;q=0.9,fr;q=0.8" },
+      }, 5000);
       const ct = (r.headers.get("content-type") || "").split(";")[0].toLowerCase();
-      if (ct.startsWith("image/") && !ct.includes("svg")) {
+      if (r.ok && ct.startsWith("image/") && !ct.includes("svg")) {
         return { imageDirect: true, image: r.url, buffer: Buffer.from(await r.arrayBuffer()), contentType: ct, site: hostOf(r.url) };
       }
+      if (r.status >= 400) continue;
       const html = (await r.text()).slice(0, 2000000);
       const p = parse(html, r.url);
+      if (p.title && BLOCKED.test(p.title)) continue; // page de blocage : on ignore tout
       for (const k of Object.keys(p)) if (!result[k] && p[k]) result[k] = p[k];
       if (result.image) break;
     } catch {
-      // site lent ou bloquant : on tente l'autre identité
+      // site lent ou bloquant : on tente la suite
     }
   }
+  if (!result.image || !result.title) {
+    const m = await microlink(url);
+    for (const k of Object.keys(m)) if (!result[k] && m[k]) result[k] = m[k];
+  }
+  if (!result.title) result.title = titleFromUrl(url);
   if (!result.site) result.site = hostOf(url);
   return result;
 }
@@ -216,26 +320,159 @@ async function downloadImage(url, referer) {
   }
 }
 
-module.exports = { getPreview, downloadImage };
+module.exports = { getPreview, downloadImage, BLOCKED, titleFromUrl };
+
+});
+
+// ===== auth =====
+__def("auth", (module, exports, require) => {
+// /api?route=auth : créer un compte, se connecter, garder la session, gérer son compte
+const { db, authFetch, deleteImages, configured, requireUser, readBody, newKey, DEFAULT_BOARDS } = require("./_lib");
+
+const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+function toSession(d) {
+  return {
+    access_token: d.access_token,
+    refresh_token: d.refresh_token,
+    expires_at: d.expires_at || Math.floor(Date.now() / 1000) + (d.expires_in || 3600),
+    email: (d.user && d.user.email) || null,
+  };
+}
+
+const passwordLogin = (email, password) => authFetch("token?grant_type=password", { body: { email, password } });
+
+// Première connexion : profil + clé de partage + tableaux par défaut
+async function setupAccount(uid) {
+  const existing = await db(`profiles?user_id=eq.${uid}&select=user_id`);
+  if (existing.length) return;
+  const anyProfile = await db("profiles?select=user_id&limit=1");
+  await db("profiles", { method: "POST", body: { user_id: uid, share_key: newKey() } });
+
+  if (!anyProfile.length) {
+    // Tout premier compte : il récupère les contenus créés avant le passage au multi-utilisateur
+    const orphanBoards = await db("boards?user_id=is.null&select=id&limit=1");
+    const orphanItems = await db("items?user_id=is.null&select=id&limit=1");
+    if (orphanBoards.length || orphanItems.length) {
+      await db("boards?user_id=is.null", { method: "PATCH", body: { user_id: uid } });
+      await db("items?user_id=is.null", { method: "PATCH", body: { user_id: uid } });
+      return;
+    }
+  }
+  const mine = await db(`boards?user_id=eq.${uid}&select=id&limit=1`);
+  if (!mine.length) {
+    await db("boards", { method: "POST", body: DEFAULT_BOARDS.map((b, i) => ({ ...b, position: i, user_id: uid })) });
+  }
+}
+
+module.exports = async (req, res) => {
+  if (!configured(res)) return;
+  try {
+    if (req.method === "GET") {
+      const user = await requireUser(req, res);
+      if (!user) return;
+      const [p] = await db(`profiles?user_id=eq.${user.id}&select=share_key`);
+      return res.json({ email: user.email, share_key: p ? p.share_key : null });
+    }
+    if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
+
+    const b = readBody(req);
+    const email = String(b.email || "").trim().toLowerCase();
+    const password = String(b.password || "");
+
+    if (b.action === "signup") {
+      if (!process.env.GLANE_CODE || String(b.invite || "").trim() !== process.env.GLANE_CODE) {
+        return res.status(403).json({ error: "This invite code isn't valid." });
+      }
+      if (!EMAIL.test(email)) return res.status(400).json({ error: "Enter a valid email." });
+      if (password.length < 8) return res.status(400).json({ error: "Use at least 8 characters for your password." });
+      const created = await authFetch("admin/users", { body: { email, password, email_confirm: true } });
+      if (!created.ok) {
+        const msg = String(created.data.msg || created.data.message || created.data.error_description || created.data.error || "");
+        if (created.status === 422 || /already|exists|registered/i.test(msg)) {
+          return res.status(409).json({ error: "An account already exists with this email. Sign in instead." });
+        }
+        return res.status(502).json({ error: `Couldn't create the account (${created.status}${msg ? ": " + msg : ""}).` });
+      }
+      const s = await passwordLogin(email, password);
+      if (!s.ok) return res.status(502).json({ error: "Account created, but signing in failed. Try signing in." });
+      await setupAccount(s.data.user.id);
+      return res.json({ session: toSession(s.data) });
+    }
+
+    if (b.action === "login") {
+      if (!EMAIL.test(email) || !password) return res.status(400).json({ error: "Enter your email and password." });
+      const s = await passwordLogin(email, password);
+      if (!s.ok) {
+        return res.status(400).json({ error: s.status === 429 ? "Too many attempts. Wait a few minutes." : "Wrong email or password." });
+      }
+      await setupAccount(s.data.user.id);
+      return res.json({ session: toSession(s.data) });
+    }
+
+    if (b.action === "refresh") {
+      const s = await authFetch("token?grant_type=refresh_token", { body: { refresh_token: String(b.refresh_token || "") } });
+      if (!s.ok) return res.status(401).json({ error: "Session expired" });
+      return res.json({ session: toSession(s.data) });
+    }
+
+    // Les actions suivantes demandent une vraie session (pas une clé de Raccourci)
+    const user = await requireUser(req, res);
+    if (!user) return;
+    if (user.viaKey) return res.status(403).json({ error: "Not allowed with a share key" });
+
+    if (b.action === "logout") {
+      await authFetch("logout", { token: user.token });
+      return res.json({ ok: true });
+    }
+
+    if (b.action === "rotate-key") {
+      const share_key = newKey();
+      await db(`profiles?user_id=eq.${user.id}`, { method: "PATCH", body: { share_key } });
+      return res.json({ share_key });
+    }
+
+    if (b.action === "delete-account") {
+      if (b.confirm !== "DELETE") return res.status(400).json({ error: "Confirmation missing" });
+      const items = await db(`items?user_id=eq.${user.id}&select=image_path`);
+      await deleteImages(items.map((i) => i.image_path));
+      await db(`items?user_id=eq.${user.id}`, { method: "DELETE" });
+      await db(`boards?user_id=eq.${user.id}`, { method: "DELETE" });
+      await db(`profiles?user_id=eq.${user.id}`, { method: "DELETE" });
+      const d = await authFetch(`admin/users/${user.id}`, { method: "DELETE" });
+      if (!d.ok) return res.status(502).json({ error: "Your content was deleted, but the account couldn't be removed. Try again." });
+      return res.json({ ok: true });
+    }
+
+    res.status(400).json({ error: "Unknown action" });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: e.message });
+  }
+};
 
 });
 
 // ===== boards =====
 __def("boards", (module, exports, require) => {
-// /api/boards : lister, créer, modifier, supprimer les tableaux
-const { db, guard, readBody, clip, UUID } = require("./_lib");
+// /api/boards : les tableaux de l'utilisateur connecté
+const { db, requireUser, readBody, clip, UUID } = require("./_lib");
 
 const HEX = /^#[0-9a-f]{6}$/i;
+const KINDS = ["collection", "events"];
 
 module.exports = async (req, res) => {
-  if (!guard(req, res)) return;
   try {
+    const user = await requireUser(req, res);
+    if (!user) return;
+    const mine = `user_id=eq.${user.id}`;
+
     if (req.method === "GET") {
-      const boards = await db("boards?select=*&order=position.asc,created_at.asc");
+      const boards = await db(`boards?${mine}&select=*&order=position.asc,created_at.asc`);
       if (req.query.format === "lines") {
-        // Format texte pour le Raccourci iPhone : une ligne par tableau
+        // Texte simple pour le Raccourci iPhone : une ligne par tableau
         res.setHeader("Content-Type", "text/plain; charset=utf-8");
-        return res.send(boards.map((b) => `${b.emoji} ${b.name}`).concat(["📥 À trier"]).join("\n"));
+        return res.send(boards.map((b) => b.name).concat(["Unsorted"]).join("\n"));
       }
       return res.json({ boards });
     }
@@ -243,35 +480,46 @@ module.exports = async (req, res) => {
     if (req.method === "POST") {
       const b = readBody(req);
       const name = clip(b.name, 40);
-      if (!name) return res.status(400).json({ error: "Nom manquant" });
-      const existing = await db("boards?select=id");
+      if (!name) return res.status(400).json({ error: "Missing name" });
+      const last = await db(`boards?${mine}&select=position&order=position.desc&limit=1`);
       const [board] = await db("boards", {
         method: "POST",
-        body: { name, emoji: clip(b.emoji, 8) || "✨", color: HEX.test(b.color || "") ? b.color : "#E3D3F7", position: existing.length },
+        body: {
+          user_id: user.id,
+          name,
+          color: HEX.test(b.color || "") ? b.color : "#D9D6CF",
+          kind: KINDS.includes(b.kind) ? b.kind : "collection",
+          position: last.length ? last[0].position + 1 : 0,
+        },
       });
       return res.status(201).json({ board });
     }
 
     const id = String(req.query.id || "");
-    if (!UUID.test(id)) return res.status(400).json({ error: "Identifiant invalide" });
+    if (!UUID.test(id)) return res.status(400).json({ error: "Invalid id" });
+    const target = `boards?id=eq.${id}&${mine}`;
 
     if (req.method === "PATCH") {
       const b = readBody(req);
       const patch = {};
       if (clip(b.name, 40)) patch.name = clip(b.name, 40);
-      if (clip(b.emoji, 8)) patch.emoji = clip(b.emoji, 8);
       if (HEX.test(b.color || "")) patch.color = b.color;
-      const [board] = await db(`boards?id=eq.${id}`, { method: "PATCH", body: patch });
-      return res.json({ board });
+      if (KINDS.includes(b.kind)) patch.kind = b.kind;
+      const rows = Object.keys(patch).length
+        ? await db(target, { method: "PATCH", body: patch })
+        : await db(`${target}&select=*`);
+      if (!rows.length) return res.status(404).json({ error: "Board not found" });
+      return res.json({ board: rows[0] });
     }
 
     if (req.method === "DELETE") {
-      // Les contenus du tableau passent dans « À trier » (clé étrangère ON DELETE SET NULL)
-      await db(`boards?id=eq.${id}`, { method: "DELETE" });
+      // Les contenus du tableau passent dans « Unsorted » (clé étrangère ON DELETE SET NULL)
+      const rows = await db(target, { method: "DELETE" });
+      if (!rows.length) return res.status(404).json({ error: "Board not found" });
       return res.json({ ok: true });
     }
 
-    res.status(405).json({ error: "Méthode non autorisée" });
+    res.status(405).json({ error: "Method not allowed" });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: e.message });
@@ -282,10 +530,10 @@ module.exports = async (req, res) => {
 
 // ===== items =====
 __def("items", (module, exports, require) => {
-// /api/items : lister, créer (lien, image, texte), modifier, supprimer les contenus
+// /api/items : les contenus de l'utilisateur connecté
 const crypto = require("crypto");
-const { db, uploadImage, deleteImage, guard, readBody, clip, norm, UUID } = require("./_lib");
-const { getPreview, downloadImage } = require("./_preview");
+const { db, uploadImage, deleteImage, requireUser, readBody, clip, norm, validDate, UUID } = require("./_lib");
+const { getPreview, downloadImage, BLOCKED } = require("./_preview");
 
 function sniff(buf) {
   if (buf[0] === 0xff && buf[1] === 0xd8) return "image/jpeg";
@@ -296,102 +544,154 @@ function sniff(buf) {
   return "image/jpeg";
 }
 
-async function resolveBoard(b) {
-  if (b.board_id && UUID.test(b.board_id)) return b.board_id;
+function decodeB64(value) {
+  const b64 = typeof value === "string" ? value.replace(/^data:[^,]+,/, "").replace(/\s+/g, "") : "";
+  if (!b64) return null;
+  const buffer = Buffer.from(b64, "base64");
+  return buffer.length >= 100 ? buffer : null;
+}
+
+// Un tableau n'est accepté que s'il appartient à l'utilisateur
+async function ownBoard(uid, boardId) {
+  if (!boardId || !UUID.test(boardId)) return null;
+  const rows = await db(`boards?id=eq.${boardId}&user_id=eq.${uid}&select=id`);
+  return rows.length ? boardId : null;
+}
+
+async function resolveBoard(uid, b) {
+  if (b.board_id) return ownBoard(uid, b.board_id);
   const wanted = norm(b.board);
   if (!wanted) return null;
-  const boards = await db("boards?select=id,name,emoji");
-  const found = boards.find((x) => norm(x.name) === wanted || norm(`${x.emoji} ${x.name}`) === wanted);
+  const boards = await db(`boards?user_id=eq.${uid}&select=id,name,slug`);
+  const found = boards.find((x) => norm(x.name) === wanted || (x.slug && norm(x.slug) === wanted));
   return found ? found.id : null;
 }
 
-async function create(req, res) {
+async function storeRemoteImage(imageUrl, pageUrl, name) {
+  const img = await downloadImage(imageUrl, pageUrl);
+  if (!img) return { image_url: imageUrl, image_path: null };
+  const up = await uploadImage(img.buffer, img.contentType, name);
+  return { image_url: up.url, image_path: up.path };
+}
+
+async function create(req, res, uid) {
   const b = readBody(req);
   const id = crypto.randomUUID();
-  const row = { id, board_id: await resolveBoard(b), title: clip(b.title, 140), note: clip(b.note, 1000) };
-
-  const b64 = typeof b.image_base64 === "string" ? b.image_base64.replace(/^data:[^,]+,/, "").replace(/\s+/g, "") : "";
+  const file = `${uid}/${id}`;
+  const row = {
+    id,
+    user_id: uid,
+    board_id: await resolveBoard(uid, b),
+    title: clip(b.title, 140),
+    note: clip(b.note, 1000),
+    event_date: validDate(b.event_date),
+  };
+  const buffer = decodeB64(b.image_base64);
   const text = typeof b.text === "string" ? b.text.trim() : "";
   let url = typeof b.url === "string" ? b.url.trim() : "";
 
-  // Un partage Android ou un Raccourci envoie souvent « Regarde ça https://… » : on isole le lien
+  // Un partage arrive souvent sous la forme « Regarde ça https://… » : on isole le lien
   if (!url && text) {
     const m = text.match(/https?:\/\/[^\s<>"]+/);
     if (m && text.replace(m[0], "").trim().length < 120) url = m[0].replace(/[)\].,;!?»"']+$/, "");
   }
 
-  if (b64) {
-    const buffer = Buffer.from(b64, "base64");
-    if (buffer.length < 100) return res.status(400).json({ error: "Image illisible" });
-    const up = await uploadImage(buffer, sniff(buffer), id);
-    Object.assign(row, { type: "image", image_url: up.url, image_path: up.path });
-  } else if (url) {
-    if (!/^https?:\/\//i.test(url)) return res.status(400).json({ error: "Lien invalide" });
+  if (url) {
+    if (!/^https?:\/\//i.test(url)) return res.status(400).json({ error: "Invalid link" });
     row.url = url.slice(0, 2000);
-    const hint = b.preview && typeof b.preview === "object" && b.preview.image && !b.preview.isImage ? b.preview : null;
+    const hint = b.preview && typeof b.preview === "object" && !b.preview.isImage && (b.preview.image || b.preview.title) ? b.preview : null;
     const p = hint || (await getPreview(url));
 
-    if (p.imageDirect) {
-      const up = await uploadImage(p.buffer, p.contentType, id);
+    if (p.imageDirect && !buffer) {
+      const up = await uploadImage(p.buffer, p.contentType, file);
       Object.assign(row, { type: "image", image_url: up.url, image_path: up.path, site: clip(p.site, 80) });
     } else {
       row.type = "link";
       row.site = clip(p.site, 80);
       row.price = clip(p.price, 40);
-      if (!row.title) row.title = clip(p.title, 140);
-      if (p.image) {
-        // On copie l'image chez nous pour qu'elle reste visible même si le site la change
-        const img = await downloadImage(p.image, url);
-        if (img) {
-          const up = await uploadImage(img.buffer, img.contentType, id);
-          row.image_url = up.url;
-          row.image_path = up.path;
-        } else {
-          row.image_url = p.image;
-        }
+      if (!row.title && p.title && !BLOCKED.test(p.title)) row.title = clip(p.title, 140);
+      if (buffer) {
+        const up = await uploadImage(buffer, sniff(buffer), file);
+        Object.assign(row, { image_url: up.url, image_path: up.path });
+      } else if (p.image) {
+        Object.assign(row, await storeRemoteImage(p.image, url, file));
       }
     }
+  } else if (buffer) {
+    const up = await uploadImage(buffer, sniff(buffer), file);
+    Object.assign(row, { type: "image", image_url: up.url, image_path: up.path });
   } else if (text) {
     row.type = "text";
     row.text = text.slice(0, 5000);
   } else {
-    return res.status(400).json({ error: "Rien à enregistrer" });
+    return res.status(400).json({ error: "Nothing to save" });
   }
 
   const [saved] = await db("items", { method: "POST", body: row });
   res.status(201).json({ item: saved });
 }
 
+async function update(req, res, uid, id) {
+  const b = readBody(req);
+  const target = `items?id=eq.${id}&user_id=eq.${uid}`;
+  const [cur] = await db(`${target}&select=*`);
+  if (!cur) return res.status(404).json({ error: "Item not found" });
+  const patch = {};
+
+  if ("title" in b) patch.title = clip(b.title, 140);
+  if ("note" in b) patch.note = clip(b.note, 1000);
+  if ("text" in b && clip(b.text, 5000)) patch.text = clip(b.text, 5000);
+  if ("board_id" in b) patch.board_id = await ownBoard(uid, b.board_id);
+  if ("event_date" in b) patch.event_date = validDate(b.event_date);
+
+  const buffer = decodeB64(b.image_base64);
+  if (buffer) {
+    const up = await uploadImage(buffer, sniff(buffer), `${uid}/${id}-${Date.now()}`);
+    patch.image_url = up.url;
+    patch.image_path = up.path;
+  }
+
+  // Nouvel essai d'aperçu (utile pour les contenus enregistrés pendant qu'un site bloquait)
+  if (b.refresh && cur.url) {
+    const p = await getPreview(cur.url);
+    const badTitle = !cur.title || BLOCKED.test(cur.title);
+    if (badTitle && p.title && !BLOCKED.test(p.title)) patch.title = clip(p.title, 140);
+    else if (badTitle && cur.title) patch.title = null;
+    if (!cur.site && p.site) patch.site = clip(p.site, 80);
+    if (!cur.price && p.price) patch.price = clip(p.price, 40);
+    if (!cur.image_url && !buffer && p.image) Object.assign(patch, await storeRemoteImage(p.image, cur.url, `${uid}/${id}-${Date.now()}`));
+  }
+
+  if (!Object.keys(patch).length) return res.json({ item: cur });
+  const [item] = await db(target, { method: "PATCH", body: patch });
+  if (patch.image_path && cur.image_path && cur.image_path !== patch.image_path) await deleteImage(cur.image_path);
+  return res.json({ item });
+}
+
 module.exports = async (req, res) => {
-  if (!guard(req, res)) return;
   try {
+    const user = await requireUser(req, res);
+    if (!user) return;
+
     if (req.method === "GET") {
-      const items = await db("items?select=*&order=created_at.desc&limit=1000");
+      const items = await db(`items?user_id=eq.${user.id}&select=*&order=created_at.desc&limit=2000`);
       return res.json({ items });
     }
-    if (req.method === "POST") return await create(req, res);
+    if (req.method === "POST") return await create(req, res, user.id);
 
     const id = String(req.query.id || "");
-    if (!UUID.test(id)) return res.status(400).json({ error: "Identifiant invalide" });
+    if (!UUID.test(id)) return res.status(400).json({ error: "Invalid id" });
 
-    if (req.method === "PATCH") {
-      const b = readBody(req);
-      const patch = {};
-      if ("title" in b) patch.title = clip(b.title, 140);
-      if ("note" in b) patch.note = clip(b.note, 1000);
-      if ("text" in b && clip(b.text, 5000)) patch.text = clip(b.text, 5000);
-      if ("board_id" in b) patch.board_id = b.board_id && UUID.test(b.board_id) ? b.board_id : null;
-      const [item] = await db(`items?id=eq.${id}`, { method: "PATCH", body: patch });
-      return res.json({ item });
-    }
+    if (req.method === "PATCH") return await update(req, res, user.id, id);
 
     if (req.method === "DELETE") {
-      const [item] = await db(`items?id=eq.${id}`, { method: "DELETE" });
-      if (item) await deleteImage(item.image_path);
+      const rows = await db(`items?id=eq.${id}&user_id=eq.${user.id}`, { method: "DELETE" });
+      if (!rows.length) return res.status(404).json({ error: "Item not found" });
+      await deleteImage(rows[0].image_path);
       return res.json({ ok: true });
     }
 
-    res.status(405).json({ error: "Méthode non autorisée" });
+    res.status(405).json({ error: "Method not allowed" });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: e.message });
@@ -402,30 +702,30 @@ module.exports = async (req, res) => {
 
 // ===== preview =====
 __def("preview", (module, exports, require) => {
-// GET /api/preview?url=...  : aperçu d'un lien (image, titre, site, prix) avant de le ranger
-const { guard } = require("./_lib");
+// GET /api/preview?url=... : aperçu d'un lien avant de le ranger
+const { requireUser } = require("./_lib");
 const { getPreview } = require("./_preview");
 
 module.exports = async (req, res) => {
-  if (!guard(req, res)) return;
-  const url = String((req.query && req.query.url) || "");
-  if (!/^https?:\/\//i.test(url)) return res.status(400).json({ error: "Lien invalide" });
-  const p = await getPreview(url);
-  res.json({
-    title: p.title || null,
-    image: p.image || null,
-    site: p.site || null,
-    price: p.price || null,
-    isImage: !!p.imageDirect,
-  });
+  try {
+    const user = await requireUser(req, res);
+    if (!user) return;
+    const url = String((req.query && req.query.url) || "");
+    if (!/^https?:\/\//i.test(url)) return res.status(400).json({ error: "Invalid link" });
+    const p = await getPreview(url);
+    res.json({ title: p.title || null, image: p.image || null, site: p.site || null, price: p.price || null, isImage: !!p.imageDirect });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: e.message });
+  }
 };
 
 });
 
-// ===== Aiguillage : /api/boards, /api/items, /api/preview =====
+// ===== Routing: /api/boards, /api/items, /api/preview, /api?route=auth =====
 module.exports = async (req, res) => {
   const route = String((req.query && req.query.route) || "").replace(/^\/+|\/+$/g, "");
-  const handler = { boards: __mods.boards, items: __mods.items, preview: __mods.preview }[route];
-  if (!handler) return res.status(404).json({ error: "Route inconnue" });
+  const handler = { auth: __mods.auth, boards: __mods.boards, items: __mods.items, preview: __mods.preview }[route];
+  if (!handler) return res.status(404).json({ error: "Unknown route" });
   return handler(req, res);
 };
