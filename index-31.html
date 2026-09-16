@@ -1,0 +1,1289 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Glane</title>
+<meta name="description" content="Everything worth keeping, in one place">
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#F2F1EE" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#131312" media="(prefers-color-scheme: dark)">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Glane">
+<link rel="apple-touch-icon" href="/icon-180.png">
+<link rel="icon" type="image/png" href="/icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#F2F1EE;--paper:#FFFFFF;--ink:#171615;--muted:#8A857E;--line:#DEDAD3;
+  --serif:'Instrument Serif',Georgia,'Times New Roman',serif;
+  --sans:'Manrope',system-ui,-apple-system,sans-serif;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);-webkit-tap-highlight-color:transparent;-webkit-font-smoothing:antialiased}
+html.locked,html.locked body{overflow:hidden}
+:focus-visible{outline:1px solid var(--ink);outline-offset:3px}
+button{font:inherit;color:inherit}
+.app{max-width:1280px;margin:0 auto;min-height:100vh;padding:calc(22px + env(safe-area-inset-top)) clamp(18px,5vw,56px) calc(130px + env(safe-area-inset-bottom))}
+.muted{color:var(--muted)}
+.label{font-size:10.5px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
+.item,.cap,.quote,.coverquote,.textcard,.nopv,.pvfig,.dmeta,.bname,.pagehead h1,.opt,.toast,.acct{overflow-wrap:anywhere;min-width:0}
+
+/* Barre du haut */
+.bar{display:flex;align-items:center;gap:14px;margin-bottom:48px;flex-wrap:wrap}
+.brand{font-family:var(--serif);font-size:36px;line-height:1;background:none;border:0;padding:0;cursor:pointer}
+.tools{margin-left:auto;display:flex;align-items:center;gap:14px;flex:1;justify-content:flex-end;min-width:0}
+.search{display:flex;align-items:center;gap:10px;border-bottom:1px solid var(--line);height:38px;width:min(320px,100%);color:var(--muted);min-width:0}
+.search:focus-within{border-color:var(--ink)}
+.search input{border:0;outline:0;font:inherit;font-size:16px;flex:1;min-width:0;background:transparent;color:var(--ink)}
+.search input::placeholder{color:var(--muted)}
+.search input::-webkit-search-cancel-button{display:none}
+.me{flex:none;width:34px;height:34px;border-radius:50%;border:1px solid var(--ink);background:transparent;font-family:var(--serif);font-size:18px;line-height:1;cursor:pointer;display:grid;place-items:center;text-transform:uppercase}
+
+/* Accueil */
+.intro{padding:4px 0 48px;max-width:620px}
+.intro h1{font-family:var(--serif);font-weight:400;font-size:clamp(42px,7vw,72px);line-height:.98;margin:0 0 16px;letter-spacing:-.015em}
+.intro p{color:var(--muted);font-size:15.5px;line-height:1.65;margin:0 0 26px;max-width:46ch}
+.sechead{display:flex;align-items:baseline;justify-content:space-between;border-top:1px solid var(--line);padding-top:12px;margin:0 0 22px}
+.boards{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:30px 14px;margin-bottom:64px}
+@media (min-width:520px){.boards{grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:34px 18px}}
+@media (min-width:900px){.boards{grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:40px 24px}}
+.board{border:0;background:none;padding:0;text-align:left;cursor:pointer}
+.cover{background:var(--tint);aspect-ratio:4/5;border-radius:4px;overflow:hidden;display:grid;grid-template:1fr/1fr;transition:opacity .3s ease}
+.board:hover .cover{opacity:.88}
+.cover img{width:100%;height:100%;object-fit:cover;display:block}
+.cover img.broken{visibility:hidden}
+.cover.c4{grid-template:1fr 1fr/1fr 1fr;gap:2px}
+.cover.center{place-items:center}
+.ini{font-family:var(--serif);font-size:76px;line-height:1;color:var(--ink);opacity:.22}
+.coverquote{font-family:var(--serif);font-size:20px;line-height:1.14;padding:20px;align-self:center;overflow:hidden;display:-webkit-box;-webkit-line-clamp:6;-webkit-box-orient:vertical}
+.bname{font-family:var(--serif);font-size:26px;line-height:1.02;margin-top:12px}
+.bcount{margin-top:5px}
+.newboard .cover{border:1px solid var(--line);color:var(--muted)}
+
+/* Grille de contenus */
+.grid{columns:2;column-gap:14px}
+@media (min-width:700px){.grid{columns:230px;column-gap:26px}}
+.item{break-inside:avoid;margin-bottom:30px;cursor:pointer;display:block}
+.media{background:var(--tint);border-radius:4px;overflow:hidden;position:relative}
+.media img.full{width:100%;display:block;transition:opacity .3s ease}
+.item:hover .media img.full{opacity:.9}
+.media img.broken{display:none}
+.cap{padding:10px 0 0}
+.cap .t{font-family:var(--serif);font-size:18.5px;line-height:1.15;margin-top:4px}
+.cap .p{font-size:12.5px;margin-top:5px;letter-spacing:.02em}
+.cap .n{font-size:13px;color:var(--muted);margin-top:4px}
+.quote{padding:28px 20px 32px;font-family:var(--serif);font-size:23px;line-height:1.16}
+.quote.dated,.textcard.dated{padding-top:72px}
+.textcard{padding:22px 18px 20px;min-height:180px;display:flex;flex-direction:column;justify-content:space-between;gap:28px}
+.fav{width:22px;height:22px;border-radius:4px;filter:grayscale(1);opacity:.75}
+.fav.broken{visibility:hidden}
+.textcard .t{font-family:var(--serif);font-size:24px;line-height:1.04}
+.datebadge{position:absolute;left:10px;top:10px;background:var(--paper);border-radius:3px;padding:6px 9px 5px;text-align:center;line-height:1;min-width:44px}
+.datebadge b{display:block;font-family:var(--serif);font-weight:400;font-size:22px}
+.datebadge span{display:block;font-size:9px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;margin-top:2px}
+.item.past{opacity:.42}
+
+/* Page d'un tableau */
+.back{display:inline-flex;align-items:center;gap:4px;border:0;background:none;cursor:pointer;padding:0;margin-bottom:26px}
+.pagehead{border-bottom:1px solid var(--line);padding-bottom:18px;margin-bottom:34px}
+.pagehead h1{font-family:var(--serif);font-weight:400;font-size:clamp(56px,11vw,120px);line-height:.9;margin:0;letter-spacing:-.025em}
+.pagehead .meta{display:flex;align-items:center;gap:14px;margin-top:16px}
+.swatch{background:var(--tint);width:10px;height:10px;border-radius:50%;flex:none;box-shadow:inset 0 0 0 1px rgba(0,0,0,.06)}
+.subhead{margin:4px 0 18px}
+.empty{border:1px solid var(--line);border-radius:4px;padding:56px 22px;text-align:center;color:var(--muted);line-height:1.65;font-family:var(--serif);font-size:20px}
+
+/* Boutons */
+.btn{height:46px;border-radius:6px;border:1px solid var(--ink);background:var(--ink);color:var(--bg);font-size:14px;font-weight:600;letter-spacing:.01em;padding:0 20px;cursor:pointer;display:inline-flex;align-items:center;gap:8px;justify-content:center;white-space:nowrap;text-decoration:none}
+.btn.ghost{background:transparent;color:var(--ink);border-color:var(--line)}
+.btn.danger{background:#9E3B32;border-color:#9E3B32;color:#fff}
+.btn.wide{width:100%}
+.btn.sm{height:38px;padding:0 14px;font-size:13px}
+.btn:disabled{opacity:.4}
+.row{display:flex;gap:10px;flex-wrap:wrap;margin-top:24px}
+.linkbtn{border:0;background:none;padding:0;cursor:pointer;font-size:13.5px;font-weight:600;text-decoration:underline;text-underline-offset:4px;text-decoration-thickness:1px}
+.fab{position:fixed;right:22px;bottom:calc(22px + env(safe-area-inset-bottom));width:56px;height:56px;border-radius:50%;background:var(--ink);color:var(--bg);border:0;display:grid;place-items:center;cursor:pointer;box-shadow:0 8px 24px rgba(0,0,0,.2);z-index:30}
+
+/* Panneaux */
+.sheetbg{position:fixed;inset:0;background:rgba(23,22,21,.36);z-index:40;display:flex;align-items:flex-end;justify-content:center}
+.sheet{background:var(--paper);width:min(600px,100%);border-radius:16px 16px 0 0;padding:12px 22px calc(28px + env(safe-area-inset-bottom));max-height:92vh;overflow:auto;overscroll-behavior:contain;animation:up .24s ease-out;-webkit-overflow-scrolling:touch}
+.sheet.still{animation:none}
+@media (min-width:720px){.sheetbg{align-items:center;padding:24px}.sheet{border-radius:12px;padding:16px 32px 32px}}
+@keyframes up{from{transform:translateY(28px);opacity:0}to{transform:none;opacity:1}}
+.grab{width:36px;height:3px;border-radius:9px;background:var(--line);margin:0 auto 18px}
+.pv{display:flex;justify-content:center;margin-bottom:22px}
+.pv img.big{max-height:300px;max-width:100%;border-radius:4px;display:block;background:var(--bg)}
+.pv .quote,.pv .textcard{border-radius:4px;width:100%;min-height:0}
+.pv .quote{max-height:280px;overflow:auto}
+.pvfig{margin:0;width:100%;display:flex;flex-direction:column;align-items:center;gap:6px;text-align:center}
+.pvfig .t{font-family:var(--serif);font-size:21px;line-height:1.15;margin-top:6px}
+.pvfig .p{font-size:13px}
+.nopv{width:100%;border-radius:4px;background:var(--bg);padding:24px;text-align:center}
+.nopv .t{font-family:var(--serif);font-size:23px;line-height:1.1;margin:8px 0 8px}
+.nopv p{margin:0 0 16px;color:var(--muted);font-size:14px;line-height:1.5}
+.loader{width:22px;height:22px;border-radius:50%;border:1.5px solid rgba(23,22,21,.12);border-top-color:var(--ink);animation:spin .8s linear infinite;margin:0 auto}
+@keyframes spin{to{transform:rotate(360deg)}}
+.ask{font-family:var(--serif);font-size:34px;line-height:1;margin:0 0 18px}
+.opts{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.opt{border:1px solid var(--line);background:var(--paper);border-radius:6px;padding:13px 14px;cursor:pointer;display:flex;align-items:center;gap:10px;text-align:left;font-family:var(--serif);font-size:20px;line-height:1.1}
+.opt:hover{border-color:var(--muted)}
+.opt.sug{border-color:var(--ink);box-shadow:inset 0 0 0 .5px var(--ink)}
+.opt.add{color:var(--muted);border-style:dashed;font-family:var(--sans);font-size:13.5px;font-weight:600}
+.more{margin-top:20px}
+.input{width:100%;border:0;border-bottom:1px solid var(--line);border-radius:0;padding:12px 0;font:inherit;font-size:16px;outline:0;background:transparent;color:var(--ink);margin-top:6px;display:block}
+.input:focus{border-color:var(--ink)}
+textarea.input{resize:vertical;min-height:56px;line-height:1.5}
+input[type=date].input{min-height:46px}
+.lbl{margin:24px 0 10px}
+.swatches{display:flex;gap:10px;flex-wrap:wrap}
+.swatches button{background:var(--tint);width:34px;height:34px;border-radius:4px;border:1px solid rgba(0,0,0,.06);cursor:pointer}
+.swatches button.on{box-shadow:0 0 0 2px var(--paper),0 0 0 3px var(--ink)}
+.seg{display:flex;gap:22px;border-bottom:1px solid var(--line)}
+.seg button{border:0;background:none;padding:0 0 10px;font-size:13.5px;font-weight:600;cursor:pointer;color:var(--muted);margin-bottom:-1px;border-bottom:1px solid transparent}
+.seg button.on{color:var(--ink);border-color:var(--ink)}
+.edprev{background:var(--tint);border-radius:4px;padding:22px;font-family:var(--serif);font-size:34px;line-height:1;margin-bottom:6px}
+.moveto{display:flex;gap:8px;overflow-x:auto;padding:2px 2px 6px}
+.moveto button{flex:none;border:1px solid var(--line);background:var(--paper);border-radius:999px;padding:8px 13px;font-size:13px;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:8px}
+.moveto button.on{border-color:var(--ink);background:var(--ink);color:var(--bg)}
+.dmeta{text-align:center;margin:-8px 0 8px;font-size:13px}
+.keybox{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13px;letter-spacing:.02em}
+.acct{font-family:var(--serif);font-size:26px;margin:4px 0 0}
+.note{color:var(--muted);font-size:14px;line-height:1.55;margin:8px 0 0}
+.toast{position:fixed;left:50%;bottom:calc(94px + env(safe-area-inset-bottom));transform:translateX(-50%);background:var(--ink);color:var(--bg);border-radius:6px;padding:11px 16px;z-index:60;font-size:14px;max-width:calc(100vw - 40px);text-align:center}
+
+/* Connexion */
+.authbox{max-width:380px;margin:12vh auto 0}
+.authbox .brand{font-size:84px;display:block;margin-bottom:10px;cursor:default}
+.authbox .tag{font-family:var(--serif);font-size:22px;line-height:1.25;color:var(--muted);margin:0 0 38px}
+.authbox .seg{margin-bottom:10px}
+.authbox .btn{margin-top:26px;width:100%}
+.err{color:#9E3B32;font-size:14px;min-height:20px;margin-top:14px;line-height:1.4}
+.tinted{background:var(--tint)}
+
+/* Mode sombre : suit le réglage du téléphone */
+@media (prefers-color-scheme:dark){
+  :root{--bg:#131312;--paper:#1C1B1A;--ink:#EAE7E1;--muted:#8E8982;--line:#2F2D2B;color-scheme:dark}
+  .cover,.media,.tinted,.edprev{background:color-mix(in srgb,var(--tint) 16%,#1C1B1A)}
+  .swatch,.swatches button{background:color-mix(in srgb,var(--tint) 75%,#1C1B1A)}
+  .datebadge{background:#131312}
+  .sheetbg{background:rgba(0,0,0,.62)}
+  .fav{opacity:.6}
+  .fab{box-shadow:0 8px 24px rgba(0,0,0,.5)}
+}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+<div id="app" class="app"></div>
+<input type="file" id="file" accept="image/*" hidden>
+<script>
+"use strict";
+
+// ---------- Textes de l'interface (tout est ici pour changer de langue facilement) ----------
+const T = {
+  tagline: "Everything worth keeping, in one place.",
+  signIn: "Sign in",
+  signUp: "Create account",
+  email: "Email",
+  password: "Password",
+  newPassword: "Password (8 characters minimum)",
+  invite: "Invite code",
+  signingIn: "Signing in…",
+  sessionEnded: "Your session ended. Please sign in again.",
+  unreachable: "Server unreachable: ",
+  searchPh: "Search",
+  boards: "Boards",
+  recent: "Recently saved",
+  unsorted: "Unsorted",
+  newBoard: "New board",
+  empty: "Empty",
+  items: (n) => `${n} item${n === 1 ? "" : "s"}`,
+  toSort: (n) => `${n} to sort`,
+  upcomingCount: (n) => `${n} upcoming`,
+  introTitle: "Keep what's worth coming back to.",
+  introText: "A watch you're eyeing, a recipe, a quote, a place to visit. Share it to Glane from any app, or tap +.",
+  add: "Add",
+  loading: "Opening your library…",
+  results: (n) => (n ? `${n} result${n === 1 ? "" : "s"}` : "Nothing found"),
+  noResults: "Try another word, or a board name.",
+  back: "Boards",
+  edit: "Edit",
+  emptyBoard: "Nothing here yet.",
+  upcoming: "Upcoming",
+  undated: "No date yet",
+  past: "Past",
+  addTitle: "Add",
+  pickPhoto: "Choose a photo or screenshot",
+  orPaste: "Or paste a link, a quote, an idea",
+  addPh: "https://… or a quote",
+  next: "Continue",
+  cancel: "Cancel",
+  searching: "Looking for the image…",
+  noPreview: "No preview available",
+  noPreviewHint: "This site doesn't share its images. Add a screenshot so the card looks right.",
+  addShot: "Add a screenshot",
+  changeShot: "Change screenshot",
+  where: "Where does it go?",
+  details: "Add a title or a note",
+  hideDetails: "Hide details",
+  titlePh: "Title",
+  authorPh: "Author",
+  notePh: "Why you're keeping it",
+  later: "Save for later",
+  saving: "Saving…",
+  savingLink: "Keeping a copy of the image and the product details.",
+  savingOther: "Uploading.",
+  when: "When is it?",
+  saveDate: "Save",
+  noDate: "No date yet",
+  back2: "Back",
+  savedIn: (b) => `Saved to ${b.name}`,
+  savedLater: "Saved to Unsorted",
+  saveFail: "Couldn't save: ",
+  gone: "This item no longer exists.",
+  date: "Date",
+  board: "Board",
+  save: "Save",
+  open: "Open",
+  del: "Delete",
+  confirm: "Confirm",
+  replaceImg: "Replace image",
+  addImg: "Add an image",
+  refresh: "Retry preview",
+  refreshing: "Retrying…",
+  refreshed: "Preview updated",
+  refreshNone: "Still no preview for this site. Add a screenshot instead.",
+  imgUpdated: "Image updated",
+  saved: "Saved",
+  deleted: "Deleted",
+  failed: "Failed: ",
+  editBoard: "Edit board",
+  newBoardT: "New board",
+  boardPh: "e.g. Watches, Recipes, Travel",
+  boardDefault: "Board name",
+  color: "Color",
+  type: "Type",
+  typeCollection: "Collection",
+  typeEvents: "Events, with dates",
+  create: "Create",
+  delBoard: "Delete board",
+  delBoardConfirm: "Confirm delete",
+  nameIt: "Give the board a name",
+  boardDeleted: "Board deleted. Its items are in Unsorted.",
+  typeSomething: "Paste a link or write something",
+  imgFail: "Couldn't read this image",
+  loadFail: "Couldn't load: ",
+  link: "Link",
+  account: "Account",
+  signedInAs: "Signed in as",
+  shortcutTitle: "iPhone Shortcut",
+  shortcutNote: "Your Shortcut uses this private key to save into your library. Keep it to yourself: anyone with it can add items.",
+  copyKey: "Copy key",
+  copyLink: "Copy boards link",
+  copied: "Copied",
+  resetKey: "Reset key",
+  resetKeyConfirm: "Confirm reset",
+  keyReset: "New key created. Update your Shortcut.",
+  signOut: "Sign out",
+  deleteAccount: "Delete account",
+  deleteAccountConfirm: "Delete everything, for good",
+  deleteNote: "This permanently removes your account, boards and saved items.",
+  accountDeleted: "Your account has been deleted.",
+};
+
+const COLORS = ["#D9D6CF", "#D6CCBC", "#C9CCBC", "#C8CED3", "#BFC7C3", "#D0C8BD", "#DDD8CE", "#C4C6C1", "#CFC3B8", "#BCC3CB"];
+const NONE = { id: null, name: T.unsorted, color: "#D7D5D0", kind: "collection" };
+const BLOCKED = /^\s*(access denied|just a moment|attention required|403 forbidden|forbidden|are you a robot|pardon our interruption|verify you are human|robot check|request unsuccessful|security check|captcha|not acceptable|site maintenance|page not found|service unavailable|bad gateway|error\s*\d{3}|\d{3}\s*(error|forbidden|not found))\s*($|[|:!.\u2013\u2014-])/i;
+
+const svg = (d, s = 20, w = 1.4) => `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="${w}" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
+const ICON = {
+  plus: svg('<path d="M12 5v14M5 12h14"/>', 24),
+  plusS: svg('<path d="M12 5v14M5 12h14"/>', 15, 1.8),
+  search: svg('<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>', 16),
+  back: svg('<path d="m15 18-6-6 6-6"/>', 14, 1.8),
+  x: svg('<path d="M6 6l12 12M18 6 6 18"/>', 14),
+};
+
+const ls = {
+  get(k) { try { return localStorage.getItem(k) || ""; } catch { return ""; } },
+  set(k, v) { try { if (v) localStorage.setItem(k, v); else localStorage.removeItem(k); } catch { /* stockage indisponible */ } },
+};
+const readSession = () => { try { return JSON.parse(ls.get("glane-session") || "null"); } catch { return null; } };
+ls.set("glane-code", ""); // ancien code d'accès de la V1, plus utilisé
+
+const S = {
+  session: readSession(), boards: [], items: [], view: "home", q: "", loading: false, sheet: null,
+  fileTarget: "new", pending: readShare(), authMode: "login", authForm: { email: "", password: "", invite: "" },
+};
+const $app = document.getElementById("app");
+const $file = document.getElementById("file");
+let toastTimer = null;
+let refreshing = null;
+
+// ---------- Outils ----------
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const norm = (s) => String(s || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
+const clip = (s, n) => (s && s.length > n ? s.slice(0, n).trimEnd() + "…" : s || "");
+const hostOf = (u) => { try { return new URL(u).hostname.replace(/^www\./, ""); } catch { return ""; } };
+const boardById = (id) => S.boards.find((b) => b.id === id) || NONE;
+const boardOf = (i) => boardById(i.board_id || null);
+const isEventsBoard = (b) => !!b && b.kind === "events";
+const itemsOf = (id) => S.items.filter((i) => (i.board_id || null) === id);
+const cleanTitle = (t) => (t && !BLOCKED.test(t) ? t : "");
+const titleOf = (i) => cleanTitle(i.title) || (i.type === "link" ? hostOf(i.url) || T.link : "");
+const img = (src, cls = "") => `<img class="${cls}" src="${esc(src)}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.classList.add('broken')">`;
+const pad = (n) => String(n).padStart(2, "0");
+const today = () => { const d = new Date(); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; };
+const dateParts = (iso) => {
+  const d = new Date(iso + "T00:00:00");
+  return { day: d.getDate(), month: d.toLocaleDateString("en-GB", { month: "short" }), long: d.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "long", year: "numeric" }) };
+};
+const isPast = (i) => !!i.event_date && i.event_date < today();
+
+function readShare() {
+  const p = new URLSearchParams(location.search);
+  const url = p.get("url"), text = p.get("text"), title = p.get("title");
+  if (!url && !text && !title) return null;
+  history.replaceState(null, "", "/");
+  return parseInput([url, text, title].filter(Boolean).join(" "), text || title);
+}
+
+function parseInput(raw, fallbackText) {
+  const t = String(raw || "").trim();
+  if (!t) return null;
+  const m = t.match(/https?:\/\/[^\s<>"]+/);
+  if (m && t.replace(m[0], "").trim().length < 120) return { kind: "link", url: m[0].replace(/[)\].,;!?»"']+$/, "") };
+  return { kind: "text", text: (fallbackText || t).trim() };
+}
+
+// ---------- Session et appels serveur ----------
+function setSession(s) {
+  S.session = s;
+  ls.set("glane-session", s ? JSON.stringify(s) : "");
+}
+
+async function authCall(body) {
+  const needsSession = !["login", "signup", "refresh"].includes(body.action);
+  if (needsSession && S.session && S.session.expires_at - Date.now() / 1000 < 90) {
+    try { await refreshSession(); } catch { sessionEnded(); }
+  }
+  const r = await fetch("/api?route=auth", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...(S.session ? { Authorization: `Bearer ${S.session.access_token}` } : {}) },
+    body: JSON.stringify(body),
+  });
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) {
+    const err = new Error(data.error || `Error ${r.status}`);
+    err.status = r.status;
+    throw err;
+  }
+  return data;
+}
+
+function refreshSession() {
+  if (!refreshing) {
+    refreshing = (async () => {
+      const r = await fetch("/api?route=auth", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "refresh", refresh_token: S.session && S.session.refresh_token }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok || !d.session) throw Object.assign(new Error("Session expired"), { status: 401 });
+      setSession({ ...d.session, email: d.session.email || (S.session && S.session.email) });
+    })().finally(() => { refreshing = null; });
+  }
+  return refreshing;
+}
+
+function sessionEnded() {
+  if (S.session) {
+    setSession(null);
+    S.boards = [];
+    S.items = [];
+    S.sheet = null;
+    S.authMode = "login";
+    S.authForm.email = S.authForm.email || "";
+    renderAuth(T.sessionEnded);
+  }
+  throw Object.assign(new Error("Signed out"), { status: 401 });
+}
+
+async function api(path, opts = {}, retried = false) {
+  if (!S.session) sessionEnded();
+  if (S.session.expires_at - Date.now() / 1000 < 90) {
+    try { await refreshSession(); } catch { sessionEnded(); }
+  }
+  const r = await fetch(path.startsWith("/") ? path : "/api/" + path, {
+    method: opts.method || "GET",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${S.session.access_token}` },
+    body: opts.body ? JSON.stringify(opts.body) : undefined,
+  });
+  if (r.status === 401) {
+    if (retried) sessionEnded();
+    try { await refreshSession(); } catch { sessionEnded(); }
+    return api(path, opts, true);
+  }
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) {
+    const err = new Error(data.error || `Error ${r.status}`);
+    err.status = r.status;
+    throw err;
+  }
+  return data;
+}
+
+function toast(msg) {
+  const el = document.getElementById("toast");
+  if (!el) return;
+  el.innerHTML = `<div class="toast" role="status">${esc(msg)}</div>`;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { el.innerHTML = ""; }, 3500);
+}
+
+function handleErr(e, prefix = T.failed) {
+  if (e.status === 401) return; // déjà renvoyée vers l'écran de connexion
+  toast(prefix + e.message);
+}
+
+function compress(file, max = 1400, quality = 0.85) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = reject;
+    reader.onload = () => {
+      const im = new Image();
+      im.onerror = reject;
+      im.onload = () => {
+        const s = Math.min(1, max / Math.max(im.width, im.height));
+        const c = document.createElement("canvas");
+        c.width = Math.round(im.width * s);
+        c.height = Math.round(im.height * s);
+        const ctx = c.getContext("2d");
+        ctx.fillStyle = "#fff";
+        ctx.fillRect(0, 0, c.width, c.height);
+        ctx.drawImage(im, 0, 0, c.width, c.height);
+        resolve(c.toDataURL("image/jpeg", quality));
+      };
+      im.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+function pickFile(target) {
+  S.fileTarget = target;
+  $file.click();
+}
+
+function replaceItem(item) {
+  S.items = S.items.map((x) => (x.id === item.id ? item : x));
+}
+
+async function copyText(text) {
+  try {
+    await navigator.clipboard.writeText(text);
+    toast(T.copied);
+  } catch {
+    window.prompt(T.copyKey, text);
+  }
+}
+
+// ---------- Connexion ----------
+function renderAuth(errMsg = "") {
+  document.documentElement.classList.remove("locked");
+  const f = S.authForm;
+  const signup = S.authMode === "signup";
+  $app.innerHTML = `
+    <div class="authbox">
+      <span class="brand">glane</span>
+      <p class="tag">${esc(T.tagline)}</p>
+      <div class="seg">
+        <button class="${signup ? "" : "on"}" data-a="auth-mode" data-v="login">${esc(T.signIn)}</button>
+        <button class="${signup ? "on" : ""}" data-a="auth-mode" data-v="signup">${esc(T.signUp)}</button>
+      </div>
+      <input id="a-email" class="input" type="email" inputmode="email" autocomplete="email" placeholder="${esc(T.email)}" value="${esc(f.email)}" data-auth="email">
+      <input id="a-pass" class="input" type="password" autocomplete="${signup ? "new-password" : "current-password"}" placeholder="${esc(signup ? T.newPassword : T.password)}" value="${esc(f.password)}" data-auth="password">
+      ${signup ? `<input id="a-invite" class="input" type="text" autocomplete="off" autocapitalize="off" placeholder="${esc(T.invite)}" value="${esc(f.invite)}" data-auth="invite">` : ""}
+      <button class="btn" id="a-go" data-a="auth-submit">${esc(signup ? T.signUp : T.signIn)}</button>
+      <p class="err" id="a-err">${esc(errMsg)}</p>
+    </div>`;
+}
+
+async function submitAuth() {
+  const f = S.authForm;
+  const btn = document.getElementById("a-go");
+  const errEl = document.getElementById("a-err");
+  btn.disabled = true;
+  btn.textContent = T.signingIn;
+  errEl.textContent = "";
+  try {
+    const action = S.authMode === "signup" ? "signup" : "login";
+    const { session } = await authCall({ action, email: f.email, password: f.password, invite: f.invite });
+    setSession(session);
+    S.authForm = { email: "", password: "", invite: "" };
+    S.authMode = "login"; // la prochaine fois, on revient sur « Sign in »
+    start();
+  } catch (e) {
+    btn.disabled = false;
+    btn.textContent = S.authMode === "signup" ? T.signUp : T.signIn;
+    errEl.textContent = e.status ? e.message : T.unreachable + e.message;
+  }
+}
+
+// ---------- Démarrage ----------
+function shell() {
+  const initial = ((S.session && S.session.email) || "?").charAt(0);
+  $app.innerHTML = `
+    <header class="bar">
+      <button class="brand" data-a="home">glane</button>
+      <div class="tools">
+        <label class="search">${ICON.search}<input id="q" type="search" placeholder="${esc(T.searchPh)}" autocomplete="off" enterkeyhint="search"></label>
+        <button class="me" data-a="account" aria-label="${esc(T.account)}">${esc(initial)}</button>
+      </div>
+    </header>
+    <main id="main"></main>
+    <button class="fab" data-a="add" aria-label="${esc(T.add)}">${ICON.plus}</button>
+    <div id="sheet"></div>
+    <div id="toast"></div>`;
+  document.getElementById("q").addEventListener("input", (e) => { S.q = e.target.value; renderMain(); });
+}
+
+async function start() {
+  if (!S.session) return renderAuth("");
+  S.view = "home";
+  shell();
+  S.loading = true;
+  renderMain();
+  const ok = await load();
+  if (ok && S.pending) {
+    const p = S.pending;
+    S.pending = null;
+    openPick(p);
+  }
+}
+
+async function load() {
+  try {
+    const [b, i] = await Promise.all([api("boards"), api("items")]);
+    S.boards = b.boards || [];
+    S.items = i.items || [];
+    return true;
+  } catch (e) {
+    handleErr(e, T.loadFail);
+    return false;
+  } finally {
+    S.loading = false;
+    renderMain();
+  }
+}
+
+// ---------- Vues principales ----------
+function renderMain() {
+  const main = document.getElementById("main");
+  if (!main) return;
+  if (S.loading && !S.items.length) {
+    main.innerHTML = `<p class="label">${esc(T.loading)}</p>`;
+    return;
+  }
+  const q = norm(S.q);
+  if (q) {
+    const words = q.split(/\s+/);
+    const res = S.items.filter((i) => {
+      const hay = norm([titleOf(i), i.url, i.text, i.note, i.site, i.price, boardOf(i).name].join(" "));
+      return words.every((w) => hay.includes(w));
+    });
+    main.innerHTML = `<div class="sechead"><span class="label">${esc(T.results(res.length))}</span></div>`
+      + (res.length ? grid(res, true) : `<div class="empty">${esc(T.noResults)}</div>`);
+    return;
+  }
+  if (S.view === "home") {
+    main.innerHTML = homeHtml();
+    return;
+  }
+  const b = S.view === "__none" ? NONE : S.boards.find((x) => x.id === S.view);
+  if (!b) {
+    S.view = "home";
+    return renderMain();
+  }
+  main.innerHTML = boardHtml(b);
+}
+
+function homeHtml() {
+  let h = "";
+  if (!S.items.length) {
+    h += `<section class="intro">
+      <h1>${esc(T.introTitle)}</h1>
+      <p>${esc(T.introText)}</p>
+      <button class="btn" data-a="add">${ICON.plusS}${esc(T.add)}</button>
+    </section>`;
+  }
+  h += `<div class="sechead"><span class="label">${esc(T.boards)}</span><span class="label">${S.boards.length}</span></div><div class="boards">`;
+  for (const b of S.boards) {
+    const its = itemsOf(b.id);
+    const upcoming = isEventsBoard(b) ? its.filter((i) => i.event_date && !isPast(i)).length : 0;
+    const count = !its.length ? T.empty : isEventsBoard(b) && upcoming ? T.upcomingCount(upcoming) : T.items(its.length);
+    h += `<button class="board" data-a="board" data-id="${b.id}">${cover(b, its)}
+      <div class="bname">${esc(b.name)}</div>
+      <div class="bcount label">${esc(count)}</div></button>`;
+  }
+  const none = itemsOf(null);
+  if (none.length) {
+    h += `<button class="board" data-a="board" data-id="__none">${cover(NONE, none)}
+      <div class="bname">${esc(NONE.name)}</div>
+      <div class="bcount label">${esc(T.toSort(none.length))}</div></button>`;
+  }
+  h += `<button class="board newboard" data-a="new-board"><div class="cover center">${ICON.plus}</div>
+    <div class="bname">${esc(T.newBoard)}</div><div class="bcount label">&nbsp;</div></button></div>`;
+  if (S.items.length) {
+    h += `<div class="sechead"><span class="label">${esc(T.recent)}</span></div>` + grid(S.items.slice(0, 40), true);
+  }
+  return h;
+}
+
+function boardHtml(b) {
+  const items = itemsOf(b.id);
+  let body;
+  if (!items.length) {
+    body = `<div class="empty">${esc(T.emptyBoard)}</div>`;
+  } else if (isEventsBoard(b)) {
+    const up = items.filter((i) => i.event_date && !isPast(i)).sort((x, y) => x.event_date.localeCompare(y.event_date));
+    const undated = items.filter((i) => !i.event_date);
+    const past = items.filter(isPast).sort((x, y) => y.event_date.localeCompare(x.event_date));
+    const section = (label, list) => (list.length ? `<div class="subhead label">${esc(label)}</div>${grid(list, false)}` : "");
+    body = section(T.upcoming, up) + section(T.undated, undated) + section(T.past, past);
+  } else {
+    body = grid(items, false);
+  }
+  return `
+    <button class="back label" data-a="home">${ICON.back}${esc(T.back)}</button>
+    <div class="pagehead">
+      <h1>${esc(b.name)}</h1>
+      <div class="meta">
+        <span class="swatch" style="--tint:${esc(b.color)}"></span>
+        <span class="label">${esc(T.items(items.length))}</span>
+        ${b.id ? `<button class="linkbtn" data-a="edit-board" data-id="${b.id}">${esc(T.edit)}</button>` : ""}
+      </div>
+    </div>
+    ${body}`;
+}
+
+function cover(b, its) {
+  const bg = `style="--tint:${esc(b.color)}"`;
+  const pics = its.map((i) => i.image_url).filter(Boolean).slice(0, 4);
+  if (pics.length >= 4) return `<div class="cover c4" ${bg}>${pics.map((p) => img(p)).join("")}</div>`;
+  if (pics.length) return `<div class="cover" ${bg}>${img(pics[0])}</div>`;
+  const q = its.find((i) => i.type === "text");
+  if (q) return `<div class="cover" ${bg}><div class="coverquote">“${esc(clip(q.text, 140))}”</div></div>`;
+  return `<div class="cover center" ${bg}><span class="ini">${esc((b.name || "?").charAt(0))}</span></div>`;
+}
+
+function grid(list, showBoard) {
+  return `<div class="grid">${list.map((i) => card(i, showBoard)).join("")}</div>`;
+}
+
+function textCard(i, dated = false) {
+  const host = hostOf(i.url);
+  const fav = host ? `<img class="fav" src="https://www.google.com/s2/favicons?domain=${encodeURIComponent(host)}&sz=64" alt="" onerror="this.classList.add('broken')">` : "<span></span>";
+  return `<div class="textcard ${dated ? "dated" : ""}">${fav}<div class="t">${esc(titleOf(i))}</div></div>`;
+}
+
+function dateBadge(i) {
+  if (!i.event_date) return "";
+  const d = dateParts(i.event_date);
+  return `<div class="datebadge"><b>${d.day}</b><span>${esc(d.month)}</span></div>`;
+}
+
+function card(i, showBoard) {
+  const b = boardOf(i);
+  const t = titleOf(i);
+  const kicker = [showBoard ? b.name : "", i.type === "link" ? i.site || hostOf(i.url) : ""].filter(Boolean).join(" · ");
+  const kick = kicker ? `<div class="label">${esc(kicker)}</div>` : "";
+  let media;
+  let cap = "";
+  if (i.image_url) {
+    media = `<div class="media" style="--tint:${esc(b.color)}">${img(i.image_url, "full")}${dateBadge(i)}</div>`;
+    if (kick || t || i.price) {
+      cap = `<div class="cap">${kick}${t ? `<div class="t">${esc(clip(t, 90))}</div>` : ""}${i.price ? `<div class="p">${esc(i.price)}</div>` : ""}</div>`;
+    }
+  } else if (i.type === "text") {
+    media = `<div class="media" style="--tint:${esc(b.color)}"><div class="quote ${i.event_date ? "dated" : ""}">“${esc(clip(i.text, 260))}”</div>${dateBadge(i)}</div>`;
+    const by = cleanTitle(i.title);
+    if (showBoard || by) cap = `<div class="cap">${showBoard ? `<div class="label">${esc(b.name)}</div>` : ""}${by ? `<div class="n">${esc(by)}</div>` : ""}</div>`;
+  } else {
+    media = `<div class="media" style="--tint:${esc(b.color)}">${textCard(i, !!i.event_date)}${dateBadge(i)}</div>`;
+    if (kick || i.price) cap = `<div class="cap">${kick}${i.price ? `<div class="p">${esc(i.price)}</div>` : ""}</div>`;
+  }
+  return `<div class="item ${isPast(i) ? "past" : ""}" role="button" tabindex="0" data-a="item" data-id="${i.id}">${media}${cap}</div>`;
+}
+
+// ---------- Panneaux ----------
+function openSheet(s) {
+  S.sheet = s;
+  renderSheet();
+}
+
+function closeSheet() {
+  S.sheet = S.sheet && S.sheet.parent ? S.sheet.parent : null;
+  renderSheet();
+}
+
+function renderSheet() {
+  const el = document.getElementById("sheet");
+  if (!el) return;
+  const s = S.sheet;
+  if (!s) {
+    el.innerHTML = "";
+    document.documentElement.classList.remove("locked");
+    return;
+  }
+  const views = { add: addSheet, pick: pickSheet, detail: detailSheet, board: boardSheet, account: accountSheet };
+  el.innerHTML = `<div class="sheetbg" data-a="backdrop"><div class="sheet ${s.shown ? "still" : ""}" role="dialog" aria-modal="true"><div class="grab"></div>${views[s.kind](s)}</div></div>`;
+  s.shown = true;
+  document.documentElement.classList.add("locked");
+}
+
+function addSheet() {
+  return `
+    <p class="ask">${esc(T.addTitle)}</p>
+    <button class="btn wide" data-a="photo">${esc(T.pickPhoto)}</button>
+    <div class="lbl label">${esc(T.orPaste)}</div>
+    <textarea id="addtext" class="input" rows="3" placeholder="${esc(T.addPh)}"></textarea>
+    <div class="row">
+      <button class="btn" data-a="add-next">${esc(T.next)}</button>
+      <button class="btn ghost" data-a="close">${esc(T.cancel)}</button>
+    </div>`;
+}
+
+function openPick(p) {
+  if (!p) return;
+  const view = S.view !== "home" && S.view !== "__none" ? S.view : null;
+  const s = {
+    kind: "pick", payload: p, step: "boards", boardId: null, suggest: view,
+    title: "", note: "", event_date: "", more: false, saving: false,
+    preview: null, previewState: p.kind === "link" ? "loading" : "none", attach: null,
+  };
+  openSheet(s);
+  if (p.kind === "link") {
+    api("preview?url=" + encodeURIComponent(p.url))
+      .then((pr) => { s.preview = pr; s.previewState = "done"; })
+      .catch(() => { s.previewState = "fail"; })
+      .finally(() => {
+        const pv = document.getElementById("pv");
+        if (S.sheet === s && pv) pv.innerHTML = pickPreview(s);
+      });
+  }
+}
+
+function pickPreview(s) {
+  const p = s.payload;
+  if (p.kind === "image") return `<img class="big" src="${p.dataUrl}" alt="">`;
+  if (p.kind === "text") return `<div class="quote" style="background:var(--bg)">“${esc(clip(p.text, 400))}”</div>`;
+  const host = hostOf(p.url);
+  if (s.attach) {
+    return `<figure class="pvfig"><img class="big" src="${s.attach.dataUrl}" alt="">
+      <div class="label">${esc(host)}</div>
+      <button class="linkbtn" data-a="attach">${esc(T.changeShot)}</button></figure>`;
+  }
+  if (s.previewState === "loading") {
+    return `<div class="nopv"><div class="loader"></div><div class="t">${esc(host)}</div><p>${esc(T.searching)}</p></div>`;
+  }
+  const pr = s.preview || {};
+  const title = cleanTitle(pr.title);
+  if (pr.image) {
+    return `<figure class="pvfig">${img(pr.image, "big")}<div class="label">${esc(pr.site || host)}</div>${title ? `<div class="t">${esc(clip(title, 90))}</div>` : ""}${pr.price ? `<div class="p">${esc(pr.price)}</div>` : ""}</figure>`;
+  }
+  return `<div class="nopv">
+    <div class="label">${esc(pr.site || host)}</div>
+    <div class="t">${esc(title || T.noPreview)}</div>
+    <p>${esc(T.noPreviewHint)}</p>
+    <button class="btn sm" data-a="attach">${esc(T.addShot)}</button>
+  </div>`;
+}
+
+function pickSheet(s) {
+  const pv = `<div id="pv" class="pv">${pickPreview(s)}</div>`;
+  if (s.saving) {
+    return `${pv}<p class="ask">${esc(T.saving)}</p><p class="note">${esc(s.payload.kind === "link" ? T.savingLink : T.savingOther)}</p>`;
+  }
+  if (s.step === "date") {
+    const b = boardById(s.boardId);
+    return `${pv}
+      <div class="label">${esc(b.name)}</div>
+      <p class="ask" style="margin-top:8px">${esc(T.when)}</p>
+      <input class="input" type="date" data-field="event_date" value="${esc(s.event_date)}">
+      <div class="row">
+        <button class="btn" data-a="save-date">${esc(T.saveDate)}</button>
+        <button class="btn ghost" data-a="skip-date">${esc(T.noDate)}</button>
+        <button class="btn ghost" data-a="back-boards">${esc(T.back2)}</button>
+      </div>`;
+  }
+  const opts = S.boards.map((b) => `<button class="opt ${s.suggest === b.id ? "sug" : ""}" data-a="pick" data-id="${b.id}"><span class="swatch" style="--tint:${esc(b.color)}"></span>${esc(b.name)}</button>`).join("");
+  const isText = s.payload.kind === "text";
+  return `${pv}
+    <p class="ask">${esc(T.where)}</p>
+    <div class="opts">${opts}<button class="opt add" data-a="new-board-pick">${ICON.plusS}${esc(T.newBoard)}</button></div>
+    <button class="linkbtn more" data-a="more">${esc(s.more ? T.hideDetails : T.details)}</button>
+    ${s.more ? `
+      <input class="input" data-field="title" value="${esc(s.title)}" placeholder="${esc(isText ? T.authorPh : T.titlePh)}">
+      <textarea class="input" rows="2" data-field="note" placeholder="${esc(T.notePh)}">${esc(s.note)}</textarea>` : ""}
+    <div class="row">
+      <button class="btn ghost" data-a="pick" data-id="">${esc(T.later)}</button>
+      <button class="btn ghost" data-a="close">${esc(T.cancel)}</button>
+    </div>`;
+}
+
+function choosePickBoard(board) {
+  const s = S.sheet;
+  if (!s || s.kind !== "pick") return;
+  if (board && isEventsBoard(board)) {
+    s.step = "date";
+    s.boardId = board.id;
+    renderSheet();
+    return;
+  }
+  save(board ? board.id : null, board);
+}
+
+async function save(boardId, boardHint) {
+  const s = S.sheet && S.sheet.kind === "pick" ? S.sheet : null;
+  if (!s || s.saving) return;
+  s.saving = true;
+  renderSheet();
+  const p = s.payload;
+  const body = {
+    board_id: boardId || null,
+    title: s.title.trim() || null,
+    note: s.note.trim() || null,
+    event_date: s.event_date || null,
+  };
+  if (p.kind === "link") {
+    body.url = p.url;
+    if (s.preview && !s.preview.isImage && (s.preview.image || s.preview.title)) body.preview = s.preview;
+    if (s.attach) body.image_base64 = s.attach.b64;
+  }
+  if (p.kind === "text") body.text = p.text;
+  if (p.kind === "image") body.image_base64 = p.b64;
+  try {
+    const { item } = await api("items", { method: "POST", body });
+    S.items.unshift(item);
+    if (S.sheet === s) S.sheet = null;
+    renderSheet();
+    renderMain();
+    const b = boardHint || S.boards.find((x) => x.id === boardId);
+    toast(b ? T.savedIn(b) : T.savedLater);
+  } catch (e) {
+    if (e.status === 401) return;
+    s.saving = false;
+    if (S.sheet === s) renderSheet();
+    toast(T.saveFail + e.message);
+  }
+}
+
+function openDetail(id) {
+  const i = S.items.find((x) => x.id === id);
+  if (!i) return;
+  openSheet({
+    kind: "detail", id,
+    title: cleanTitle(i.title), note: i.note || "", text: i.text || "",
+    board_id: i.board_id || null, event_date: i.event_date || "",
+    armed: false, busy: "",
+  });
+}
+
+function detailSheet(s) {
+  const i = S.items.find((x) => x.id === s.id);
+  if (!i) return `<p class="note">${esc(T.gone)}</p>`;
+  const b = boardOf(i);
+  const media = i.image_url
+    ? img(i.image_url, "big")
+    : i.type === "text"
+      ? `<div class="quote tinted" style="--tint:${esc(b.color)}">“${esc(i.text)}”</div>`
+      : `<div class="tinted" style="width:100%;border-radius:4px;overflow:hidden;--tint:${esc(b.color)}">${textCard(i)}</div>`;
+  const chosen = boardById(s.board_id);
+  const showDate = isEventsBoard(chosen) || !!s.event_date;
+  const chips = [...S.boards, NONE].map((x) => `<button class="${(s.board_id || null) === x.id ? "on" : ""}" data-a="detail-board" data-id="${x.id || ""}"><span class="swatch" style="--tint:${esc(x.color)}"></span>${esc(x.name)}</button>`).join("");
+  const meta = [i.price, i.site || hostOf(i.url), i.event_date ? dateParts(i.event_date).long : ""].filter(Boolean).join(" · ");
+  const canRefresh = i.type === "link" && i.url && (!i.image_url || !cleanTitle(i.title));
+  return `
+    <div class="pv">${media}</div>
+    ${meta ? `<p class="dmeta label">${esc(meta)}</p>` : ""}
+    ${i.type === "text" ? `<textarea class="input" rows="3" data-field="text">${esc(s.text)}</textarea>` : ""}
+    <input class="input" data-field="title" value="${esc(s.title)}" placeholder="${esc(i.type === "text" ? T.authorPh : T.titlePh)}">
+    <textarea class="input" rows="2" data-field="note" placeholder="${esc(T.notePh)}">${esc(s.note)}</textarea>
+    ${showDate ? `<div class="lbl label">${esc(T.date)}</div><input class="input" type="date" data-field="event_date" value="${esc(s.event_date)}">` : ""}
+    <div class="lbl label">${esc(T.board)}</div>
+    <div class="moveto">${chips}</div>
+    <div class="row">
+      <button class="btn" data-a="detail-save">${esc(T.save)}</button>
+      ${i.url ? `<a class="btn ghost" href="${esc(i.url)}" target="_blank" rel="noopener">${esc(T.open)}</a>` : ""}
+      ${i.type !== "text" ? `<button class="btn ghost" data-a="replace-img" ${s.busy ? "disabled" : ""}>${esc(i.image_url ? T.replaceImg : T.addImg)}</button>` : ""}
+      ${canRefresh ? `<button class="btn ghost" data-a="refresh" ${s.busy ? "disabled" : ""}>${esc(s.busy === "refresh" ? T.refreshing : T.refresh)}</button>` : ""}
+      <button class="btn ${s.armed ? "danger" : "ghost"}" data-a="detail-delete">${esc(s.armed ? T.confirm : T.del)}</button>
+    </div>`;
+}
+
+function boardSheet(s) {
+  return `
+    <p class="ask">${esc(s.id ? T.editBoard : T.newBoardT)}</p>
+    <div class="edprev" id="edprev" style="--tint:${esc(s.color)}">${esc(s.name || T.boardDefault)}</div>
+    <input class="input" data-field="name" value="${esc(s.name)}" placeholder="${esc(T.boardPh)}" maxlength="40">
+    <div class="lbl label">${esc(T.type)}</div>
+    <div class="seg">
+      <button class="${s.boardKind !== "events" ? "on" : ""}" data-a="board-kind" data-v="collection">${esc(T.typeCollection)}</button>
+      <button class="${s.boardKind === "events" ? "on" : ""}" data-a="board-kind" data-v="events">${esc(T.typeEvents)}</button>
+    </div>
+    <div class="lbl label">${esc(T.color)}</div>
+    <div class="swatches">${COLORS.map((c) => `<button class="${s.color === c ? "on" : ""}" style="--tint:${c}" data-a="color" data-v="${c}" aria-label="${esc(T.color)} ${c}"></button>`).join("")}</div>
+    <div class="row">
+      <button class="btn" data-a="board-save">${esc(s.id ? T.save : T.create)}</button>
+      <button class="btn ghost" data-a="close">${esc(T.cancel)}</button>
+      ${s.id ? `<button class="btn ${s.armed ? "danger" : "ghost"}" data-a="board-delete">${esc(s.armed ? T.delBoardConfirm : T.delBoard)}</button>` : ""}
+    </div>`;
+}
+
+const newBoardSheet = (parent) => ({ kind: "board", id: null, name: "", color: COLORS[S.boards.length % COLORS.length], boardKind: "collection", armed: false, parent });
+
+function openAccount() {
+  const s = { kind: "account", email: (S.session && S.session.email) || "", key: null, armedKey: false, armedDelete: false };
+  openSheet(s);
+  api("/api?route=auth")
+    .then((d) => {
+      s.key = d.share_key;
+      if (d.email) s.email = d.email;
+      if (S.sheet === s) renderSheet();
+    })
+    .catch((e) => handleErr(e));
+}
+
+function accountSheet(s) {
+  const link = s.key ? `${location.origin}/api/boards?format=lines&key=${s.key}` : "";
+  return `
+    <div class="label">${esc(T.signedInAs)}</div>
+    <p class="acct">${esc(s.email)}</p>
+    <div class="lbl label">${esc(T.shortcutTitle)}</div>
+    <input class="input keybox" readonly value="${esc(s.key || "…")}">
+    <p class="note">${esc(T.shortcutNote)}</p>
+    <div class="row">
+      <button class="btn ghost sm" data-a="copy-key" ${s.key ? "" : "disabled"}>${esc(T.copyKey)}</button>
+      <button class="btn ghost sm" data-a="copy-link" data-v="${esc(link)}" ${s.key ? "" : "disabled"}>${esc(T.copyLink)}</button>
+      <button class="btn ${s.armedKey ? "danger" : "ghost"} sm" data-a="reset-key" ${s.key ? "" : "disabled"}>${esc(s.armedKey ? T.resetKeyConfirm : T.resetKey)}</button>
+    </div>
+    <div class="row" style="border-top:1px solid var(--line);padding-top:22px;margin-top:28px">
+      <button class="btn" data-a="sign-out">${esc(T.signOut)}</button>
+      <button class="btn ${s.armedDelete ? "danger" : "ghost"}" data-a="delete-account">${esc(s.armedDelete ? T.deleteAccountConfirm : T.deleteAccount)}</button>
+    </div>
+    ${s.armedDelete ? `<p class="note">${esc(T.deleteNote)}</p>` : ""}`;
+}
+
+// ---------- Actions ----------
+const ACTIONS = {
+  "auth-mode"(el) { S.authMode = el.dataset.v; renderAuth(""); },
+  "auth-submit"() { submitAuth(); },
+  home() {
+    S.view = "home";
+    S.q = "";
+    const q = document.getElementById("q");
+    if (q) q.value = "";
+    renderMain();
+    window.scrollTo(0, 0);
+  },
+  board(el) { S.view = el.dataset.id; renderMain(); window.scrollTo(0, 0); },
+  add() { openSheet({ kind: "add" }); },
+  photo() { pickFile("new"); },
+  attach() { pickFile("attach"); },
+  "add-next"() {
+    const p = parseInput(document.getElementById("addtext").value);
+    if (!p) return toast(T.typeSomething);
+    openPick(p);
+  },
+  pick(el) {
+    const id = el.dataset.id || null;
+    choosePickBoard(id ? S.boards.find((b) => b.id === id) : null);
+  },
+  "save-date"() { save(S.sheet.boardId); },
+  "skip-date"() { S.sheet.event_date = ""; save(S.sheet.boardId); },
+  "back-boards"() { S.sheet.step = "boards"; S.sheet.event_date = ""; renderSheet(); },
+  more() { S.sheet.more = !S.sheet.more; renderSheet(); },
+  item(el) { openDetail(el.dataset.id); },
+  "detail-board"(el) { S.sheet.board_id = el.dataset.id || null; renderSheet(); },
+  async "detail-save"() {
+    const s = S.sheet;
+    const i = S.items.find((x) => x.id === s.id);
+    const body = { title: s.title, note: s.note, board_id: s.board_id, event_date: s.event_date || null };
+    if (i && i.type === "text") body.text = s.text;
+    try {
+      const { item } = await api("items?id=" + s.id, { method: "PATCH", body });
+      replaceItem(item);
+      S.sheet = null;
+      renderSheet();
+      renderMain();
+      toast(T.saved);
+    } catch (e) {
+      handleErr(e);
+    }
+  },
+  "replace-img"() { pickFile("replace"); },
+  async refresh() {
+    const s = S.sheet;
+    const before = S.items.find((x) => x.id === s.id);
+    s.busy = "refresh";
+    renderSheet();
+    try {
+      const { item } = await api("items?id=" + s.id, { method: "PATCH", body: { refresh: true } });
+      replaceItem(item);
+      if (S.sheet === s) {
+        s.busy = "";
+        s.title = cleanTitle(item.title);
+        renderSheet();
+      }
+      renderMain();
+      const improved = (item.image_url && !before.image_url) || (cleanTitle(item.title) && !cleanTitle(before.title));
+      toast(improved ? T.refreshed : T.refreshNone);
+    } catch (e) {
+      s.busy = "";
+      if (S.sheet === s) renderSheet();
+      handleErr(e);
+    }
+  },
+  async "detail-delete"() {
+    const s = S.sheet;
+    if (!s.armed) { s.armed = true; return renderSheet(); }
+    try {
+      await api("items?id=" + s.id, { method: "DELETE" });
+      S.items = S.items.filter((x) => x.id !== s.id);
+      S.sheet = null;
+      renderSheet();
+      renderMain();
+      toast(T.deleted);
+    } catch (e) {
+      handleErr(e);
+    }
+  },
+  "new-board"() { openSheet(newBoardSheet(null)); },
+  "new-board-pick"() { openSheet(newBoardSheet(S.sheet)); },
+  "edit-board"(el) {
+    const b = S.boards.find((x) => x.id === el.dataset.id);
+    if (b) openSheet({ kind: "board", id: b.id, name: b.name, color: b.color, boardKind: b.kind || "collection", armed: false });
+  },
+  "board-kind"(el) { S.sheet.boardKind = el.dataset.v; renderSheet(); },
+  color(el) { S.sheet.color = el.dataset.v; renderSheet(); },
+  async "board-save"() {
+    const s = S.sheet;
+    const name = s.name.trim();
+    if (!name) return toast(T.nameIt);
+    const body = { name, color: s.color, kind: s.boardKind };
+    try {
+      if (s.id) {
+        const { board } = await api("boards?id=" + s.id, { method: "PATCH", body });
+        S.boards = S.boards.map((b) => (b.id === board.id ? board : b));
+        S.sheet = null;
+        renderSheet();
+        renderMain();
+        return;
+      }
+      const { board } = await api("boards", { method: "POST", body });
+      S.boards.push(board);
+      renderMain();
+      if (s.parent) {
+        S.sheet = s.parent;
+        renderSheet();
+        choosePickBoard(board);
+      } else {
+        S.sheet = null;
+        renderSheet();
+        S.view = board.id;
+        renderMain();
+      }
+    } catch (e) {
+      handleErr(e);
+    }
+  },
+  async "board-delete"() {
+    const s = S.sheet;
+    if (!s.armed) { s.armed = true; return renderSheet(); }
+    try {
+      await api("boards?id=" + s.id, { method: "DELETE" });
+      S.boards = S.boards.filter((b) => b.id !== s.id);
+      S.items = S.items.map((i) => (i.board_id === s.id ? { ...i, board_id: null } : i));
+      S.sheet = null;
+      S.view = "home";
+      renderSheet();
+      renderMain();
+      toast(T.boardDeleted);
+    } catch (e) {
+      handleErr(e);
+    }
+  },
+  account() { openAccount(); },
+  "copy-key"() { if (S.sheet.key) copyText(S.sheet.key); },
+  "copy-link"(el) { if (el.dataset.v) copyText(el.dataset.v); },
+  async "reset-key"() {
+    const s = S.sheet;
+    if (!s.armedKey) { s.armedKey = true; return renderSheet(); }
+    try {
+      const d = await authCall({ action: "rotate-key" });
+      s.key = d.share_key;
+      s.armedKey = false;
+      renderSheet();
+      toast(T.keyReset);
+    } catch (e) {
+      handleErr(e);
+    }
+  },
+  async "sign-out"() {
+    try { await authCall({ action: "logout" }); } catch { /* la session sera oubliée de toute façon */ }
+    setSession(null);
+    S.boards = [];
+    S.items = [];
+    S.sheet = null;
+    S.authMode = "login";
+    renderAuth("");
+  },
+  async "delete-account"() {
+    const s = S.sheet;
+    if (!s.armedDelete) { s.armedDelete = true; return renderSheet(); }
+    try {
+      await authCall({ action: "delete-account", confirm: "DELETE" });
+      setSession(null);
+      S.boards = [];
+      S.items = [];
+      S.sheet = null;
+      S.authMode = "login";
+      renderAuth(T.accountDeleted);
+    } catch (e) {
+      handleErr(e);
+    }
+  },
+  close() { closeSheet(); },
+};
+
+document.addEventListener("click", (e) => {
+  const el = e.target.closest("[data-a]");
+  if (!el) return;
+  const a = el.dataset.a;
+  if (a === "backdrop") {
+    if (e.target === el) closeSheet();
+    return;
+  }
+  const fn = ACTIONS[a];
+  if (fn) {
+    e.preventDefault();
+    fn(el);
+  }
+});
+
+document.addEventListener("input", (e) => {
+  const d = e.target.dataset || {};
+  if (d.auth) {
+    S.authForm[d.auth] = e.target.value;
+    return;
+  }
+  if (!d.field || !S.sheet) return;
+  S.sheet[d.field] = e.target.value;
+  if (d.field === "name") {
+    const b = document.getElementById("edprev");
+    if (b) b.textContent = e.target.value || T.boardDefault;
+  }
+});
+
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && S.sheet) return closeSheet();
+  if (e.key === "Enter") {
+    if (e.target.dataset && e.target.dataset.auth) return submitAuth();
+    const item = e.target.closest && e.target.closest('[data-a="item"]');
+    if (item && e.target === item) openDetail(item.dataset.id);
+  }
+});
+
+$file.addEventListener("change", async () => {
+  const f = $file.files[0];
+  $file.value = "";
+  if (!f) return;
+  let dataUrl;
+  try {
+    dataUrl = await compress(f);
+  } catch {
+    return toast(T.imgFail);
+  }
+  const shot = { dataUrl, b64: dataUrl.split(",")[1] };
+  const s = S.sheet;
+
+  if (S.fileTarget === "attach" && s && s.kind === "pick") {
+    s.attach = shot;
+    const pv = document.getElementById("pv");
+    if (pv) pv.innerHTML = pickPreview(s);
+    return;
+  }
+
+  if (S.fileTarget === "replace" && s && s.kind === "detail") {
+    s.busy = "image";
+    renderSheet();
+    try {
+      const { item } = await api("items?id=" + s.id, { method: "PATCH", body: { image_base64: shot.b64 } });
+      replaceItem(item);
+      toast(T.imgUpdated);
+    } catch (e) {
+      handleErr(e);
+    }
+    s.busy = "";
+    if (S.sheet === s) renderSheet();
+    renderMain();
+    return;
+  }
+
+  openPick({ kind: "image", ...shot });
+});
+
+// Sur ordinateur : coller ou glisser-déposer
+async function intakeFile(file) {
+  try {
+    const dataUrl = await compress(file);
+    openPick({ kind: "image", dataUrl, b64: dataUrl.split(",")[1] });
+  } catch {
+    toast(T.imgFail);
+  }
+}
+
+window.addEventListener("paste", (e) => {
+  if (!S.session || S.sheet) return;
+  const tag = (e.target.tagName || "").toLowerCase();
+  if (tag === "input" || tag === "textarea") return;
+  const cd = e.clipboardData;
+  if (!cd) return;
+  const file = [...(cd.files || [])].find((f) => f.type.startsWith("image/"));
+  if (file) {
+    e.preventDefault();
+    return intakeFile(file);
+  }
+  const t = cd.getData("text/plain");
+  if (t) {
+    e.preventDefault();
+    openPick(parseInput(t));
+  }
+});
+window.addEventListener("dragover", (e) => e.preventDefault());
+window.addEventListener("drop", (e) => {
+  e.preventDefault();
+  if (!S.session || S.sheet) return;
+  const dt = e.dataTransfer;
+  const file = [...(dt.files || [])].find((f) => f.type.startsWith("image/"));
+  if (file) return intakeFile(file);
+  const t = (dt.getData("text/uri-list") || "").split(/\r?\n/).find((l) => l && !l.startsWith("#")) || dt.getData("text/plain");
+  if (t) openPick(parseInput(t));
+});
+
+// Toute erreur « déconnectée » non capturée ne doit pas polluer la console
+window.addEventListener("unhandledrejection", (e) => {
+  if (e.reason && e.reason.status === 401) e.preventDefault();
+});
+
+if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});
+start();
+</script>
+</body>
+</html>
