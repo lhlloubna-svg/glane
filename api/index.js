@@ -26,6 +26,7 @@ const DEFAULT_BOARDS = [
   { name: "Fitness", slug: "fitness", emoji: "dumbbell", color: "#BFC7C3", kind: "collection" },
   { name: "Spiritual", slug: "spiritual", emoji: "leaf", color: "#D0C8BD", kind: "collection" },
   { name: "Events", slug: "events", emoji: "calendar", color: "#DDD8CE", kind: "events" },
+  { name: "To-do", slug: "todo", emoji: "checklist", color: "#D3D6CC", kind: "todo" },
 ];
 
 function sbHeaders(extra = {}) {
@@ -547,7 +548,7 @@ const crypto = require("crypto");
 const { db, requireUser, readBody, clip, UUID } = require("./_lib");
 
 const HEX = /^#[0-9a-f]{6}$/i;
-const KINDS = ["collection", "events"];
+const KINDS = ["collection", "events", "todo"];
 const ICON = /^[a-z]{2,20}$/; // nom d'icône, rangé dans la colonne emoji
 
 module.exports = async (req, res) => {
@@ -743,6 +744,10 @@ async function update(req, res, uid, id) {
   if ("board_id" in b) patch.board_id = await ownBoard(uid, b.board_id);
   if ("event_date" in b) patch.event_date = validDate(b.event_date);
   if (b.opened) patch.opened_at = new Date().toISOString();
+  if (b.done === true) patch.done_at = cur.done_at || new Date().toISOString();
+  if (b.done === false) patch.done_at = null;
+  if (b.archived === true) patch.archived_at = cur.archived_at || new Date().toISOString();
+  if (b.archived === false) patch.archived_at = null;
   if ("remind_on" in b) {
     patch.remind_on = validDate(b.remind_on);
     patch.reminded_at = null; // nouvelle date : le rappel repart
@@ -778,7 +783,10 @@ module.exports = async (req, res) => {
     if (!user) return;
 
     if (req.method === "GET") {
-      const items = await db(`items?user_id=eq.${user.id}&archived_at=is.null&select=*&order=created_at.desc&limit=2000`);
+      // ?archived=1 : la section Archive, du plus récemment archivé au plus ancien
+      const items = req.query.archived
+        ? await db(`items?user_id=eq.${user.id}&archived_at=not.is.null&select=*&order=archived_at.desc&limit=2000`)
+        : await db(`items?user_id=eq.${user.id}&archived_at=is.null&select=*&order=created_at.desc&limit=2000`);
       return res.json({ items });
     }
     if (req.method === "POST") return await create(req, res, user.id);
@@ -918,8 +926,10 @@ const MESSAGES = {
   places: (i, when, weekday) => ({ title: weekday === "Fri" ? "For the weekend" : "A place you kept", body: `${clip(label(i), 80)}, saved ${when}.` }),
 };
 
-function pickDaily(items, boards, ref) {
+function pickDaily(allItems, boards, ref) {
   const byId = Object.fromEntries(boards.map((b) => [b.id, b]));
+  // Les tâches (tableaux To-do) et ce qui est coché ne sont pas de l'inspiration
+  const items = allItems.filter((i) => !i.done_at && (byId[i.board_id] || {}).kind !== "todo");
   const today = localDay(ref);
   const tomorrow = addDays(today, 1);
 
@@ -985,7 +995,7 @@ function pickDaily(items, boards, ref) {
 function dueReminders(items, ref) {
   const today = localDay(ref);
   return items
-    .filter((i) => i.remind_on && i.remind_on <= today && !i.reminded_at)
+    .filter((i) => i.remind_on && i.remind_on <= today && !i.reminded_at && !i.done_at)
     .sort((a, b) => a.remind_on.localeCompare(b.remind_on));
 }
 
@@ -1005,7 +1015,7 @@ function reminderPick(due) {
 
 async function loadUserData(uid) {
   const [items, boards] = await Promise.all([
-    db(`items?user_id=eq.${uid}&archived_at=is.null&select=id,type,title,text,site,price,url,board_id,event_date,created_at,last_surfaced_at,opened_at,remind_on,reminded_at&limit=2000`),
+    db(`items?user_id=eq.${uid}&archived_at=is.null&select=id,type,title,text,site,price,url,board_id,event_date,created_at,last_surfaced_at,opened_at,remind_on,reminded_at,done_at&limit=2000`),
     db(`boards?user_id=eq.${uid}&select=id,name,slug,kind,emoji`),
   ]);
   return { items, boards };
@@ -1165,7 +1175,7 @@ async function load(token) {
   if (!boards.length) return null;
   const board = boards[0];
   // Jamais les notes perso, ni ce qui a été mis de côté
-  const items = await db(`items?board_id=eq.${board.id}&archived_at=is.null&select=id,type,title,text,url,site,image_url,event_date,created_at,board_id&order=created_at.desc&limit=500`);
+  const items = await db(`items?board_id=eq.${board.id}&archived_at=is.null&select=id,type,title,text,url,site,image_url,event_date,created_at,board_id,done_at&order=created_at.desc&limit=500`);
   for (const i of items) if (i.title && BLOCKED.test(i.title)) i.title = null;
   return { board, items };
 }
