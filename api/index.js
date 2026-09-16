@@ -324,6 +324,91 @@ module.exports = { getPreview, downloadImage, BLOCKED, titleFromUrl };
 
 });
 
+// ===== _webpush =====
+__def("_webpush", (module, exports, require) => {
+// Envoi de notifications Web Push sans bibliothèque externe
+// Chiffrement RFC 8291 (aes128gcm) et authentification VAPID RFC 8292
+const crypto = require("crypto");
+
+const b64u = (buf) => Buffer.from(buf).toString("base64url");
+const unb64u = (s) => Buffer.from(String(s), "base64url");
+
+// Services de notification autorisés (évite d'envoyer des requêtes vers n'importe quelle adresse)
+const PUSH_HOSTS = [/\.push\.apple\.com$/, /^fcm\.googleapis\.com$/, /\.googleapis\.com$/, /push\.services\.mozilla\.com$/, /\.notify\.windows\.com$/];
+function allowedEndpoint(endpoint) {
+  try {
+    const u = new URL(endpoint);
+    return u.protocol === "https:" && PUSH_HOSTS.some((re) => re.test(u.hostname));
+  } catch {
+    return false;
+  }
+}
+
+function generateVapidKeys() {
+  const ecdh = crypto.createECDH("prime256v1");
+  ecdh.generateKeys();
+  return { publicKey: b64u(ecdh.getPublicKey()), privateKey: b64u(ecdh.getPrivateKey()) };
+}
+
+function vapidJwt(audience, subject, keys, now = Date.now()) {
+  const pub = unb64u(keys.publicKey);
+  const jwk = { kty: "EC", crv: "P-256", d: keys.privateKey, x: b64u(pub.subarray(1, 33)), y: b64u(pub.subarray(33, 65)) };
+  const header = b64u(JSON.stringify({ typ: "JWT", alg: "ES256" }));
+  const claims = b64u(JSON.stringify({ aud: audience, exp: Math.floor(now / 1000) + 12 * 3600, sub: subject }));
+  const sig = crypto.sign("sha256", Buffer.from(`${header}.${claims}`), { key: crypto.createPrivateKey({ key: jwk, format: "jwk" }), dsaEncoding: "ieee-p1363" });
+  return `${header}.${claims}.${b64u(sig)}`;
+}
+
+// Chiffre le contenu pour un abonnement (clés p256dh et auth fournies par le navigateur)
+function encrypt(plaintext, p256dh, authSecret, opts = {}) {
+  const uaPublic = unb64u(p256dh);
+  const auth = unb64u(authSecret);
+  const ecdh = crypto.createECDH("prime256v1");
+  if (opts.asPrivate) ecdh.setPrivateKey(unb64u(opts.asPrivate));
+  else ecdh.generateKeys();
+  const asPublic = ecdh.getPublicKey();
+  const salt = opts.salt ? unb64u(opts.salt) : crypto.randomBytes(16);
+  const shared = ecdh.computeSecret(uaPublic);
+
+  const keyInfo = Buffer.concat([Buffer.from("WebPush: info\0"), uaPublic, asPublic]);
+  const ikm = Buffer.from(crypto.hkdfSync("sha256", shared, auth, keyInfo, 32));
+  const cek = Buffer.from(crypto.hkdfSync("sha256", ikm, salt, Buffer.from("Content-Encoding: aes128gcm\0"), 16));
+  const nonce = Buffer.from(crypto.hkdfSync("sha256", ikm, salt, Buffer.from("Content-Encoding: nonce\0"), 12));
+
+  const cipher = crypto.createCipheriv("aes-128-gcm", cek, nonce);
+  const body = Buffer.concat([cipher.update(Buffer.concat([Buffer.from(plaintext), Buffer.from([2])])), cipher.final(), cipher.getAuthTag()]);
+
+  const rs = Buffer.alloc(4);
+  rs.writeUInt32BE(4096);
+  return Buffer.concat([salt, rs, Buffer.from([asPublic.length]), asPublic, body]);
+}
+
+async function sendPush(sub, payload, keys, subject) {
+  if (!allowedEndpoint(sub.endpoint)) return { status: 400 };
+  const body = encrypt(JSON.stringify(payload), sub.p256dh, sub.auth);
+  const jwt = vapidJwt(new URL(sub.endpoint).origin, subject, keys);
+  try {
+    const r = await fetch(sub.endpoint, {
+      method: "POST",
+      headers: {
+        TTL: "86400",
+        Urgency: "normal",
+        "Content-Type": "application/octet-stream",
+        "Content-Encoding": "aes128gcm",
+        Authorization: `vapid t=${jwt}, k=${keys.publicKey}`,
+      },
+      body,
+    });
+    return { status: r.status };
+  } catch {
+    return { status: 0 };
+  }
+}
+
+module.exports = { generateVapidKeys, vapidJwt, encrypt, sendPush, allowedEndpoint };
+
+});
+
 // ===== auth =====
 __def("auth", (module, exports, require) => {
 // /api?route=auth : créer un compte, se connecter, garder la session, gérer son compte
@@ -438,6 +523,8 @@ module.exports = async (req, res) => {
       await deleteImages(items.map((i) => i.image_path));
       await db(`items?user_id=eq.${user.id}`, { method: "DELETE" });
       await db(`boards?user_id=eq.${user.id}`, { method: "DELETE" });
+      await db(`push_subscriptions?user_id=eq.${user.id}`, { method: "DELETE" });
+      await db(`notifications?user_id=eq.${user.id}`, { method: "DELETE" });
       await db(`profiles?user_id=eq.${user.id}`, { method: "DELETE" });
       const d = await authFetch(`admin/users/${user.id}`, { method: "DELETE" });
       if (!d.ok) return res.status(502).json({ error: "Your content was deleted, but the account couldn't be removed. Try again." });
@@ -646,6 +733,7 @@ async function update(req, res, uid, id) {
   if ("text" in b && clip(b.text, 5000)) patch.text = clip(b.text, 5000);
   if ("board_id" in b) patch.board_id = await ownBoard(uid, b.board_id);
   if ("event_date" in b) patch.event_date = validDate(b.event_date);
+  if (b.opened) patch.opened_at = new Date().toISOString();
 
   const buffer = decodeB64(b.image_base64);
   if (buffer) {
@@ -677,7 +765,7 @@ module.exports = async (req, res) => {
     if (!user) return;
 
     if (req.method === "GET") {
-      const items = await db(`items?user_id=eq.${user.id}&select=*&order=created_at.desc&limit=2000`);
+      const items = await db(`items?user_id=eq.${user.id}&archived_at=is.null&select=*&order=created_at.desc&limit=2000`);
       return res.json({ items });
     }
     if (req.method === "POST") return await create(req, res, user.id);
@@ -725,10 +813,304 @@ module.exports = async (req, res) => {
 
 });
 
-// ===== Routing: /api/boards, /api/items, /api/preview, /api?route=auth =====
+// ===== push =====
+__def("push", (module, exports, require) => {
+// /api?route=push : abonnement aux notifications, test, retour « Keep / Let go »
+// /api/cron : la notification du matin (lancée une fois par jour par Vercel)
+const crypto = require("crypto");
+const { db, requireUser, configured, readBody, UUID } = require("./_lib");
+const { generateVapidKeys, sendPush, allowedEndpoint } = require("./_webpush");
+
+const TZ = "Asia/Dubai";
+const MIN_ITEMS = 5;
+const DAY = 86400000;
+const now = () => (process.env.GLANE_FAKE_NOW ? new Date(process.env.GLANE_FAKE_NOW) : new Date());
+
+// ---------- Clés de notification : créées une fois, gardées dans la base ----------
+async function vapidKeys() {
+  const rows = await db("push_config?id=eq.1&select=public_key,private_key");
+  if (rows.length) return { publicKey: rows[0].public_key, privateKey: rows[0].private_key };
+  const k = generateVapidKeys();
+  try {
+    await db("push_config", { method: "POST", body: { id: 1, public_key: k.publicKey, private_key: k.privateKey } });
+    return k;
+  } catch {
+    const again = await db("push_config?id=eq.1&select=public_key,private_key");
+    return { publicKey: again[0].public_key, privateKey: again[0].private_key };
+  }
+}
+
+// ---------- Dates à l'heure de Dubaï ----------
+function localDay(d) {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: TZ, year: "numeric", month: "2-digit", day: "2-digit" }).format(d);
+}
+function localWeekday(d) {
+  return new Intl.DateTimeFormat("en-US", { timeZone: TZ, weekday: "short" }).format(d);
+}
+function addDays(iso, n) {
+  const d = new Date(iso + "T12:00:00Z");
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+}
+function ago(created, ref) {
+  const days = Math.floor((ref - new Date(created)) / DAY);
+  if (days < 1) return "today";
+  if (days < 2) return "yesterday";
+  if (days < 7) return `${days} days ago`;
+  if (days < 14) return "last week";
+  if (days < 60) return `${Math.floor(days / 7)} weeks ago`;
+  return "in " + new Intl.DateTimeFormat("en-GB", { month: "long", timeZone: TZ }).format(new Date(created));
+}
+const clip = (s, n) => (s && s.length > n ? s.slice(0, n - 1).trimEnd() + "…" : s || "");
+const BLOCKED = /^\s*(access denied|just a moment|attention required|403 forbidden|forbidden|are you a robot)\b/i;
+const label = (i) => {
+  const t = i.title && !BLOCKED.test(i.title) ? i.title : "";
+  if (t) return t;
+  if (i.type === "text" && i.text) return i.text.split("\n")[0];
+  if (i.site) return `something from ${i.site}`;
+  try { return `something from ${new URL(i.url).hostname.replace(/^www\./, "")}`; } catch { return "something you saved"; }
+};
+
+// ---------- Le choix du jour ----------
+// Familles de contenus, reconnues au tableau (identifiant, icône ou nom)
+const FAMILY_RULES = {
+  quote: { slugs: ["quotes"], icons: ["quote"], name: /quote|citation|thought|pens[ée]e/i },
+  reading: { slugs: ["reading"], icons: ["book"], name: /read|book|livre|article|essay|lecture/i },
+  culture: { slugs: [], icons: ["film", "music", "palette", "camera"], name: /film|cin[ée]ma|movie|music|musique|art|expo|exhibit|museum|mus[ée]e|culture|podcast|th[ée][aâ]tre|theat/i },
+  mind: { slugs: ["spiritual", "fitness"], icons: ["leaf", "sparkles", "dumbbell", "heart"], name: /mind|spirit|medit|well|yoga|fitness|sport|soul/i },
+  table: { slugs: ["food"], icons: ["utensils", "coffee"], name: /food|recipe|recette|cook|cuisine|restaurant/i },
+  places: { slugs: [], icons: ["plane", "globe", "home"], name: /travel|voyage|place|trip|city|lieu/i },
+};
+
+// Le tableau décide en priorité ; une note sans tableau reconnu est traitée comme une pensée
+function familyOf(item, board) {
+  if (board) {
+    for (const [fam, r] of Object.entries(FAMILY_RULES)) {
+      if (r.slugs.includes(board.slug) || r.icons.includes(board.emoji) || r.name.test(board.name || "")) return fam;
+    }
+  }
+  return item.type === "text" ? "quote" : "other";
+}
+
+// Thème de chaque jour : lun une pensée, mar lecture, mer culture, jeu esprit et corps,
+// ven table et lieux pour le week-end, sam « depuis tes archives », dim récap de la semaine
+const THEMES = { Mon: ["quote"], Tue: ["reading"], Wed: ["culture"], Thu: ["mind"], Fri: ["table", "places", "culture"], Sat: [], Sun: [] };
+
+const MESSAGES = {
+  quote: (i) => ({ title: "A thought for today", body: `“${clip(i.text || label(i), 150)}”` }),
+  reading: (i, when) => ({ title: "From your reading list", body: `${clip(label(i), 80)}, saved ${when}.` }),
+  culture: (i, when) => ({ title: "Something to come back to", body: `${clip(label(i), 80)}, saved ${when}.` }),
+  mind: (i, when) => ({ title: "For your mind today", body: `${clip(label(i), 80)}, saved ${when}.` }),
+  table: (i, when, weekday) => ({ title: weekday === "Fri" ? "For the weekend" : "An idea for today", body: `${clip(label(i), 80)}, saved ${when}.` }),
+  places: (i, when, weekday) => ({ title: weekday === "Fri" ? "For the weekend" : "A place you kept", body: `${clip(label(i), 80)}, saved ${when}.` }),
+};
+
+function pickDaily(items, boards, ref) {
+  const byId = Object.fromEntries(boards.map((b) => [b.id, b]));
+  const today = localDay(ref);
+  const tomorrow = addDays(today, 1);
+
+  // 1. Un événement aujourd'hui ou demain passe toujours en premier
+  const events = items.filter((i) => i.event_date && (i.event_date === today || i.event_date === tomorrow));
+  events.sort((a, b) => a.event_date.localeCompare(b.event_date));
+  const ev = events.find((i) => !i.last_surfaced_at || localDay(new Date(i.last_surfaced_at)) !== today);
+  if (ev) {
+    const when = ev.event_date === today ? "Today" : "Tomorrow";
+    return { kind: "event", item: ev, title: `${when}: ${clip(label(ev), 60)}`, body: `You saved this ${ago(ev.created_at, ref)}.` };
+  }
+
+  if (items.length < MIN_ITEMS) return null;
+  const weekday = localWeekday(ref);
+
+  // 2. Le dimanche : un moment pour regarder sa semaine
+  if (weekday === "Sun") {
+    const week = items.filter((i) => ref - new Date(i.created_at) < 7 * DAY);
+    if (week.length) {
+      const unopened = week.filter((i) => !i.opened_at).length;
+      return {
+        kind: "recap",
+        item: null,
+        title: `Your week in ${week.length} thing${week.length > 1 ? "s" : ""}`,
+        body: unopened ? `${unopened} still waiting for you. Take a quiet moment with them.` : "Take a quiet moment with them.",
+      };
+    }
+  }
+
+  // 3. Sinon, un élément gardé qui revient
+  const surfacedOk = (i, days) => !i.last_surfaced_at || ref - new Date(i.last_surfaced_at) >= days * DAY;
+  const oldEnough = (i, days) => ref - new Date(i.created_at) >= days * DAY;
+  const pool = items.filter((i) => !(i.event_date && i.event_date < today));
+  let candidates = pool.filter((i) => oldEnough(i, 7) && surfacedOk(i, 30));
+  if (!candidates.length) candidates = pool.filter((i) => oldEnough(i, 2) && surfacedOk(i, 30));
+  if (!candidates.length) candidates = pool.filter((i) => surfacedOk(i, 7));
+  if (!candidates.length) candidates = pool.slice().sort((a, b) => new Date(a.last_surfaced_at || 0) - new Date(b.last_surfaced_at || 0)).slice(0, 1);
+  if (!candidates.length) return null;
+
+  // Les familles du thème sont essayées dans l'ordre ; sinon (et le samedi), tout le monde
+  const theme = THEMES[weekday] || [];
+  let list = [];
+  for (const fam of theme) {
+    list = candidates.filter((i) => familyOf(i, byId[i.board_id]) === fam);
+    if (list.length) break;
+  }
+  if (!list.length) list = candidates;
+  list.sort((a, b) => (!!a.opened_at - !!b.opened_at) || (!!a.last_surfaced_at - !!b.last_surfaced_at) || (new Date(a.created_at) - new Date(b.created_at)));
+  const item = list[0];
+  const board = byId[item.board_id];
+  const when = ago(item.created_at, ref);
+  const fam = familyOf(item, board);
+  if (MESSAGES[fam]) return { kind: fam, item, ...MESSAGES[fam](item, when, weekday) };
+  return {
+    kind: "archive",
+    item,
+    title: weekday === "Sat" ? "From your archive" : board ? `From your ${board.name} board` : "Something you kept",
+    body: `${clip(label(item), 80)}, saved ${when}.`,
+  };
+}
+
+async function loadUserData(uid) {
+  const [items, boards] = await Promise.all([
+    db(`items?user_id=eq.${uid}&archived_at=is.null&select=id,type,title,text,site,price,url,board_id,event_date,created_at,last_surfaced_at,opened_at&limit=2000`),
+    db(`boards?user_id=eq.${uid}&select=id,name,slug,kind,emoji`),
+  ]);
+  return { items, boards };
+}
+
+async function deliver(uid, pick, keys, subject, { test = false } = {}) {
+  const subs = await db(`push_subscriptions?user_id=eq.${uid}&select=endpoint,p256dh,auth`);
+  if (!subs.length) return { sent: 0 };
+  const id = crypto.randomUUID();
+  if (!test) {
+    await db("notifications", { method: "POST", body: { id, user_id: uid, item_id: pick.item ? pick.item.id : null, kind: pick.kind, title: pick.title, body: pick.body } });
+    if (pick.item) await db(`items?id=eq.${pick.item.id}&user_id=eq.${uid}`, { method: "PATCH", body: { last_surfaced_at: now().toISOString() } });
+  }
+  const url = pick.item ? `/?n=${test ? "test" : id}&item=${pick.item.id}` : `/?n=${test ? "test" : id}`;
+  const payload = { title: pick.title, body: pick.body, url, tag: test ? "glane-test" : "glane-daily" };
+  let sent = 0;
+  for (const s of subs) {
+    const r = await sendPush(s, payload, keys, subject);
+    if (r.status >= 200 && r.status < 300) sent++;
+    // Abonnement expiré ou supprimé côté téléphone : on l'oublie
+    if (r.status === 404 || r.status === 410) await db(`push_subscriptions?endpoint=eq.${encodeURIComponent(s.endpoint)}`, { method: "DELETE" });
+  }
+  if (!test) await db(`notifications?id=eq.${id}`, { method: "PATCH", body: { delivered: sent } });
+  return { sent };
+}
+
+const subjectFor = (req) => `https://${String(req.headers.host || "glane.vercel.app").replace(/[^a-z0-9.:-]/gi, "")}`;
+
+// ---------- Tâche du matin ----------
+async function runDaily(req, res) {
+  if (!configured(res)) return;
+  const secret = process.env.CRON_SECRET;
+  if (secret && req.headers.authorization !== `Bearer ${secret}`) return res.status(401).json({ error: "Unauthorized" });
+  const ref = now();
+  const today = localDay(ref);
+  const keys = await vapidKeys();
+  const subject = subjectFor(req);
+  const subs = await db("push_subscriptions?select=user_id");
+  const users = [...new Set(subs.map((s) => s.user_id))];
+  const summary = { users: users.length, sent: 0, skipped: 0, already: 0 };
+
+  const queue = users.slice();
+  async function worker() {
+    while (queue.length) {
+      const uid = queue.shift();
+      try {
+        const last = await db(`notifications?user_id=eq.${uid}&select=sent_at&order=sent_at.desc&limit=1`);
+        if (last.length && localDay(new Date(last[0].sent_at)) === today) { summary.already++; continue; }
+        const { items, boards } = await loadUserData(uid);
+        const pick = pickDaily(items, boards, ref);
+        if (!pick) { summary.skipped++; continue; }
+        const r = await deliver(uid, pick, keys, subject);
+        summary.sent += r.sent;
+      } catch (e) {
+        console.error("daily push failed for", uid, e.message);
+      }
+    }
+  }
+  await Promise.all([worker(), worker(), worker(), worker()]);
+  res.json(summary);
+}
+
+// ---------- Actions de l'app ----------
+async function handle(req, res) {
+  if (!configured(res)) return;
+  const user = await requireUser(req, res);
+  if (!user) return;
+  if (user.viaKey) return res.status(403).json({ error: "Not allowed with a share key" });
+
+  if (req.method === "GET") {
+    const keys = await vapidKeys();
+    const subs = await db(`push_subscriptions?user_id=eq.${user.id}&select=endpoint`);
+    return res.json({ publicKey: keys.publicKey, devices: subs.length });
+  }
+  if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
+  const b = readBody(req);
+
+  if (b.action === "subscribe") {
+    const s = b.subscription || {};
+    const endpoint = String(s.endpoint || "");
+    const p256dh = String((s.keys && s.keys.p256dh) || "");
+    const auth = String((s.keys && s.keys.auth) || "");
+    if (!allowedEndpoint(endpoint) || !/^[A-Za-z0-9_-]{80,100}$/.test(p256dh) || !/^[A-Za-z0-9_-]{16,32}$/.test(auth)) {
+      return res.status(400).json({ error: "This device can't receive notifications." });
+    }
+    await db(`push_subscriptions?endpoint=eq.${encodeURIComponent(endpoint)}`, { method: "DELETE" });
+    await db("push_subscriptions", { method: "POST", body: { endpoint, user_id: user.id, p256dh, auth } });
+    return res.json({ ok: true });
+  }
+
+  if (b.action === "unsubscribe") {
+    await db(`push_subscriptions?endpoint=eq.${encodeURIComponent(String(b.endpoint || ""))}&user_id=eq.${user.id}`, { method: "DELETE" });
+    return res.json({ ok: true });
+  }
+
+  if (b.action === "test") {
+    const { items, boards } = await loadUserData(user.id);
+    const pick = pickDaily(items, boards, now()) || {
+      kind: "test", item: null, title: "Notifications are on",
+      body: items.length < MIN_ITEMS ? `Save ${MIN_ITEMS - items.length} more thing${MIN_ITEMS - items.length > 1 ? "s" : ""} to get a daily pick.` : "See you tomorrow morning.",
+    };
+    const r = await deliver(user.id, pick, await vapidKeys(), subjectFor(req), { test: true });
+    return res.json({ sent: r.sent, title: pick.title, body: pick.body });
+  }
+
+  if (b.action === "feedback") {
+    const value = ["open", "keep", "let_go"].includes(b.value) ? b.value : null;
+    if (!value) return res.status(400).json({ error: "Unknown answer" });
+    if (UUID.test(String(b.n || ""))) {
+      await db(`notifications?id=eq.${b.n}&user_id=eq.${user.id}`, { method: "PATCH", body: value === "open" ? { opened_at: now().toISOString() } : { action: value } });
+    }
+    if (UUID.test(String(b.item || ""))) {
+      const target = `items?id=eq.${b.item}&user_id=eq.${user.id}`;
+      if (value === "let_go") await db(target, { method: "PATCH", body: { archived_at: now().toISOString() } });
+      if (value === "open") await db(target, { method: "PATCH", body: { opened_at: now().toISOString() } });
+    }
+    return res.json({ ok: true });
+  }
+
+  res.status(400).json({ error: "Unknown action" });
+}
+
+module.exports = async (req, res) => {
+  try {
+    if (req.query && req.query.route === "cron") return await runDaily(req, res);
+    return await handle(req, res);
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: e.message });
+  }
+};
+module.exports.pickDaily = pickDaily;
+module.exports.familyOf = familyOf;
+
+});
+
+// ===== Routing: /api/boards, /api/items, /api/preview, /api/cron, /api?route=auth|push =====
 module.exports = async (req, res) => {
   const route = String((req.query && req.query.route) || "").replace(/^\/+|\/+$/g, "");
-  const handler = { auth: __mods.auth, boards: __mods.boards, items: __mods.items, preview: __mods.preview }[route];
+  const handler = { auth: __mods.auth, boards: __mods.boards, items: __mods.items, preview: __mods.preview, push: __mods.push, cron: __mods.push }[route];
   if (!handler) return res.status(404).json({ error: "Unknown route" });
   return handler(req, res);
 };
