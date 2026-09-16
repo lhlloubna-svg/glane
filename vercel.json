@@ -6,7 +6,8 @@
     { "source": "/api/boards", "destination": "/api?route=boards" },
     { "source": "/api/items", "destination": "/api?route=items" },
     { "source": "/api/preview", "destination": "/api?route=preview" },
-    { "source": "/api/cron", "destination": "/api?route=cron" }
+    { "source": "/api/cron", "destination": "/api?route=cron" },
+    { "source": "/s/:token", "destination": "/api?route=public&t=:token&html=1" }
   ],
   "crons": [
     { "path": "/api/cron", "schedule": "30 4 * * *" }
