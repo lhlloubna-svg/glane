@@ -543,6 +543,7 @@ module.exports = async (req, res) => {
 // ===== boards =====
 __def("boards", (module, exports, require) => {
 // /api/boards : les tableaux de l'utilisateur connecté
+const crypto = require("crypto");
 const { db, requireUser, readBody, clip, UUID } = require("./_lib");
 
 const HEX = /^#[0-9a-f]{6}$/i;
@@ -595,6 +596,13 @@ module.exports = async (req, res) => {
       if (HEX.test(b.color || "")) patch.color = b.color;
       if (KINDS.includes(b.kind)) patch.kind = b.kind;
       if (ICON.test(b.icon || "")) patch.emoji = b.icon;
+      // Partage par lien : un jeton aléatoire, supprimé quand on arrête de partager
+      if (b.share === true) {
+        const [cur] = await db(`${target}&select=share_token`);
+        if (!cur) return res.status(404).json({ error: "Board not found" });
+        if (!cur.share_token) patch.share_token = crypto.randomBytes(12).toString("base64url");
+      }
+      if (b.share === false) patch.share_token = null;
       const rows = Object.keys(patch).length
         ? await db(target, { method: "PATCH", body: patch })
         : await db(`${target}&select=*`);
@@ -675,6 +683,7 @@ async function create(req, res, uid) {
     title: clip(b.title, 140),
     note: clip(b.note, 1000),
     event_date: validDate(b.event_date),
+    remind_on: validDate(b.remind_on),
   };
   const buffer = decodeB64(b.image_base64);
   const text = typeof b.text === "string" ? b.text.trim() : "";
@@ -734,6 +743,10 @@ async function update(req, res, uid, id) {
   if ("board_id" in b) patch.board_id = await ownBoard(uid, b.board_id);
   if ("event_date" in b) patch.event_date = validDate(b.event_date);
   if (b.opened) patch.opened_at = new Date().toISOString();
+  if ("remind_on" in b) {
+    patch.remind_on = validDate(b.remind_on);
+    patch.reminded_at = null; // nouvelle date : le rappel repart
+  }
 
   const buffer = decodeB64(b.image_base64);
   if (buffer) {
@@ -968,9 +981,31 @@ function pickDaily(items, boards, ref) {
   };
 }
 
+// Rappels arrivés à échéance (y compris un jour manqué), pas encore envoyés
+function dueReminders(items, ref) {
+  const today = localDay(ref);
+  return items
+    .filter((i) => i.remind_on && i.remind_on <= today && !i.reminded_at)
+    .sort((a, b) => a.remind_on.localeCompare(b.remind_on));
+}
+
+function reminderPick(due) {
+  if (due.length === 1) {
+    return { kind: "reminder", item: due[0], reminders: due, title: `Reminder: ${clip(label(due[0]), 60)}`, body: "You asked to be reminded today." };
+  }
+  const names = due.slice(0, 3).map((i) => clip(label(i), 40)).join(" · ");
+  return {
+    kind: "reminder",
+    item: null,
+    reminders: due,
+    title: `${due.length} reminders for today`,
+    body: due.length > 3 ? `${names} and ${due.length - 3} more` : names,
+  };
+}
+
 async function loadUserData(uid) {
   const [items, boards] = await Promise.all([
-    db(`items?user_id=eq.${uid}&archived_at=is.null&select=id,type,title,text,site,price,url,board_id,event_date,created_at,last_surfaced_at,opened_at&limit=2000`),
+    db(`items?user_id=eq.${uid}&archived_at=is.null&select=id,type,title,text,site,price,url,board_id,event_date,created_at,last_surfaced_at,opened_at,remind_on,reminded_at&limit=2000`),
     db(`boards?user_id=eq.${uid}&select=id,name,slug,kind,emoji`),
   ]);
   return { items, boards };
@@ -983,6 +1018,9 @@ async function deliver(uid, pick, keys, subject, { test = false } = {}) {
   if (!test) {
     await db("notifications", { method: "POST", body: { id, user_id: uid, item_id: pick.item ? pick.item.id : null, kind: pick.kind, title: pick.title, body: pick.body } });
     if (pick.item) await db(`items?id=eq.${pick.item.id}&user_id=eq.${uid}`, { method: "PATCH", body: { last_surfaced_at: now().toISOString() } });
+    for (const r of pick.reminders || []) {
+      await db(`items?id=eq.${r.id}&user_id=eq.${uid}`, { method: "PATCH", body: { reminded_at: now().toISOString() } });
+    }
   }
   const url = pick.item ? `/?n=${test ? "test" : id}&item=${pick.item.id}` : `/?n=${test ? "test" : id}`;
   const payload = { title: pick.title, body: pick.body, url, tag: test ? "glane-test" : "glane-daily" };
@@ -1020,7 +1058,8 @@ async function runDaily(req, res) {
         const last = await db(`notifications?user_id=eq.${uid}&select=sent_at&order=sent_at.desc&limit=1`);
         if (last.length && localDay(new Date(last[0].sent_at)) === today) { summary.already++; continue; }
         const { items, boards } = await loadUserData(uid);
-        const pick = pickDaily(items, boards, ref);
+        const due = dueReminders(items, ref);
+        const pick = due.length ? reminderPick(due) : pickDaily(items, boards, ref);
         if (!pick) { summary.skipped++; continue; }
         const r = await deliver(uid, pick, keys, subject);
         summary.sent += r.sent;
@@ -1068,7 +1107,8 @@ async function handle(req, res) {
 
   if (b.action === "test") {
     const { items, boards } = await loadUserData(user.id);
-    const pick = pickDaily(items, boards, now()) || {
+    const due = dueReminders(items, now());
+    const pick = (due.length ? reminderPick(due) : pickDaily(items, boards, now())) || {
       kind: "test", item: null, title: "Notifications are on",
       body: items.length < MIN_ITEMS ? `Save ${MIN_ITEMS - items.length} more thing${MIN_ITEMS - items.length > 1 ? "s" : ""} to get a daily pick.` : "See you tomorrow morning.",
     };
@@ -1077,7 +1117,7 @@ async function handle(req, res) {
   }
 
   if (b.action === "feedback") {
-    const value = ["open", "keep", "let_go"].includes(b.value) ? b.value : null;
+    const value = ["open", "keep", "let_go", "done"].includes(b.value) ? b.value : null;
     if (!value) return res.status(400).json({ error: "Unknown answer" });
     if (UUID.test(String(b.n || ""))) {
       await db(`notifications?id=eq.${b.n}&user_id=eq.${user.id}`, { method: "PATCH", body: value === "open" ? { opened_at: now().toISOString() } : { action: value } });
@@ -1086,6 +1126,7 @@ async function handle(req, res) {
       const target = `items?id=eq.${b.item}&user_id=eq.${user.id}`;
       if (value === "let_go") await db(target, { method: "PATCH", body: { archived_at: now().toISOString() } });
       if (value === "open") await db(target, { method: "PATCH", body: { opened_at: now().toISOString() } });
+      if (value === "done") await db(target, { method: "PATCH", body: { remind_on: null, reminded_at: null } });
     }
     return res.json({ ok: true });
   }
@@ -1104,13 +1145,87 @@ module.exports = async (req, res) => {
 };
 module.exports.pickDaily = pickDaily;
 module.exports.familyOf = familyOf;
+module.exports.dueReminders = dueReminders;
+module.exports.reminderPick = reminderPick;
+
+});
+
+// ===== public =====
+__def("public", (module, exports, require) => {
+// /api?route=public&t=... : un tableau partagé par lien, lisible sans compte
+// Avec &html=1 : la page de l'app, avec l'aperçu (titre, image) pour WhatsApp, iMessage, etc.
+const { db, configured } = require("./_lib");
+const { BLOCKED } = require("./_preview");
+
+const TOKEN = /^[A-Za-z0-9_-]{16,40}$/;
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+async function load(token) {
+  const boards = await db(`boards?share_token=eq.${token}&select=id,name,emoji,color,kind,slug`);
+  if (!boards.length) return null;
+  const board = boards[0];
+  // Jamais les notes perso, ni ce qui a été mis de côté
+  const items = await db(`items?board_id=eq.${board.id}&archived_at=is.null&select=id,type,title,text,url,site,image_url,event_date,created_at,board_id&order=created_at.desc&limit=500`);
+  for (const i of items) if (i.title && BLOCKED.test(i.title)) i.title = null;
+  return { board, items };
+}
+
+async function page(req, res, data, token) {
+  const host = String(req.headers.host || "").replace(/[^a-z0-9.:-]/gi, "");
+  const proto = req.headers["x-forwarded-proto"] || (/^(localhost|127\.)/.test(host) ? "http" : "https");
+  let html;
+  try {
+    const r = await fetch(`${proto}://${host}/index.html`);
+    if (!r.ok) throw new Error("index " + r.status);
+    html = await r.text();
+  } catch {
+    // Sans la page, on renvoie vers la version simple du lien
+    res.setHeader("Location", `/?s=${encodeURIComponent(token)}`);
+    return res.status(302).send("");
+  }
+  const count = data ? data.items.length : 0;
+  const title = data ? `${data.board.name} · Glane` : "Glane";
+  const desc = data ? `${count} thing${count === 1 ? "" : "s"} kept on Glane.` : "This board isn't shared anymore.";
+  const cover = data && data.items.find((i) => i.image_url);
+  const meta = [
+    `<meta name="robots" content="noindex, nofollow">`,
+    `<meta property="og:type" content="website">`,
+    `<meta property="og:site_name" content="Glane">`,
+    `<meta property="og:title" content="${esc(title)}">`,
+    `<meta property="og:description" content="${esc(desc)}">`,
+    `<meta property="og:url" content="${esc(`${proto}://${host}/s/${token}`)}">`,
+    cover ? `<meta property="og:image" content="${esc(cover.image_url)}">` : `<meta property="og:image" content="${esc(`${proto}://${host}/icon-512.png`)}">`,
+    `<meta name="twitter:card" content="${cover ? "summary_large_image" : "summary"}">`,
+  ].join("\n");
+  html = html
+    .replace(/<title>[^<]*<\/title>/, `<title>${esc(title)}</title>`)
+    .replace(/<meta name="description"[^>]*>/, `<meta name="description" content="${esc(desc)}">\n${meta}`);
+  res.setHeader("Content-Type", "text/html; charset=utf-8");
+  res.setHeader("Cache-Control", "public, s-maxage=60, stale-while-revalidate=300");
+  return res.status(data ? 200 : 404).send(html);
+}
+
+module.exports = async (req, res) => {
+  if (!configured(res)) return;
+  try {
+    const token = String((req.query && req.query.t) || "");
+    const data = TOKEN.test(token) ? await load(token) : null;
+    if (req.query.html) return await page(req, res, data, token);
+    if (!data) return res.status(404).json({ error: "This board isn't shared anymore." });
+    res.setHeader("Cache-Control", "public, s-maxage=30");
+    return res.json(data);
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: e.message });
+  }
+};
 
 });
 
 // ===== Routing: /api/boards, /api/items, /api/preview, /api/cron, /api?route=auth|push =====
 module.exports = async (req, res) => {
   const route = String((req.query && req.query.route) || "").replace(/^\/+|\/+$/g, "");
-  const handler = { auth: __mods.auth, boards: __mods.boards, items: __mods.items, preview: __mods.preview, push: __mods.push, cron: __mods.push }[route];
+  const handler = { auth: __mods.auth, boards: __mods.boards, items: __mods.items, preview: __mods.preview, push: __mods.push, cron: __mods.push, public: __mods.public }[route];
   if (!handler) return res.status(404).json({ error: "Unknown route" });
   return handler(req, res);
 };
