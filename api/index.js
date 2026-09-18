@@ -19,14 +19,15 @@ const BUCKET = "glane";
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const DEFAULT_BOARDS = [
-  { name: "Fashion", slug: "fashion", emoji: "shirt", color: "#D9D6CF", kind: "collection" },
-  { name: "Food", slug: "food", emoji: "utensils", color: "#D6CCBC", kind: "collection" },
-  { name: "Reading", slug: "reading", emoji: "book", color: "#C9CCBC", kind: "collection" },
-  { name: "Quotes", slug: "quotes", emoji: "quote", color: "#C8CED3", kind: "collection" },
-  { name: "Fitness", slug: "fitness", emoji: "dumbbell", color: "#BFC7C3", kind: "collection" },
-  { name: "Spiritual", slug: "spiritual", emoji: "leaf", color: "#D0C8BD", kind: "collection" },
-  { name: "Events", slug: "events", emoji: "calendar", color: "#DDD8CE", kind: "events" },
-  { name: "To-do", slug: "todo", emoji: "checklist", color: "#D3D6CC", kind: "todo" },
+  { name: "Fashion", slug: "fashion", emoji: "shirt", color: "#D9D6CF", kind: "collection", tagset: null },
+  { name: "Food", slug: "food", emoji: "utensils", color: "#D6CCBC", kind: "collection", tagset: null },
+  { name: "Reading", slug: "reading", emoji: "book", color: "#C9CCBC", kind: "collection", tagset: null },
+  { name: "Quotes", slug: "quotes", emoji: "quote", color: "#C8CED3", kind: "collection", tagset: null },
+  { name: "Fitness", slug: "fitness", emoji: "dumbbell", color: "#BFC7C3", kind: "collection", tagset: "muscles" },
+  { name: "Spiritual", slug: "spiritual", emoji: "leaf", color: "#D0C8BD", kind: "collection", tagset: null },
+  { name: "Events", slug: "events", emoji: "calendar", color: "#DDD8CE", kind: "events", tagset: null },
+  { name: "Spots to test", slug: "spots", emoji: "pin", color: "#CFC3B8", kind: "places", tagset: "places" },
+  { name: "To-do", slug: "todo", emoji: "checklist", color: "#D3D6CC", kind: "todo", tagset: null },
 ];
 
 function sbHeaders(extra = {}) {
@@ -286,6 +287,7 @@ async function getPreview(url) {
       if (r.ok && ct.startsWith("image/") && !ct.includes("svg")) {
         return { imageDirect: true, image: r.url, buffer: Buffer.from(await r.arrayBuffer()), contentType: ct, site: hostOf(r.url) };
       }
+      if (!result.finalUrl) result.finalUrl = r.url;
       if (r.status >= 400) continue;
       const html = (await r.text()).slice(0, 2000000);
       const p = parse(html, r.url);
@@ -321,7 +323,110 @@ async function downloadImage(url, referer) {
   }
 }
 
-module.exports = { getPreview, downloadImage, BLOCKED, titleFromUrl };
+module.exports = { getPreview, downloadImage, BLOCKED, titleFromUrl, timedFetch };
+
+});
+
+// ===== _geo =====
+__def("_geo", (module, exports, require) => {
+// Position d'un lieu : lue dans un lien Google Maps / Apple Maps, sinon cherchée par nom (OpenStreetMap)
+const { timedFetch } = require("./_preview");
+
+const validCoord = (lat, lng) => Number.isFinite(lat) && Number.isFinite(lng) && Math.abs(lat) <= 90 && Math.abs(lng) <= 180 && !(lat === 0 && lng === 0);
+
+function coordsFromUrl(u) {
+  if (!u) return null;
+  let s;
+  try { s = decodeURIComponent(decodeURIComponent(String(u))); } catch { s = String(u); }
+  const pick = (a, b) => (validCoord(+a, +b) ? [+a, +b] : null);
+  let m = s.match(/!3d(-?\d{1,2}\.\d+)!4d(-?\d{1,3}\.\d+)/);
+  if (m && pick(m[1], m[2])) return pick(m[1], m[2]);
+  m = s.match(/@(-?\d{1,2}\.\d+),(-?\d{1,3}\.\d+)/);
+  if (m && pick(m[1], m[2])) return pick(m[1], m[2]);
+  m = s.match(/[?&](?:ll|q|query|coordinate|sll|center|destination|daddr)=(-?\d{1,2}\.\d+)\s*,\s*(-?\d{1,3}\.\d+)/);
+  if (m && pick(m[1], m[2])) return pick(m[1], m[2]);
+  return null;
+}
+
+function isMapsUrl(u) {
+  try {
+    const h = new URL(u).hostname;
+    return /(^|\.)google\.[a-z.]+$/.test(h) && /\/maps/.test(new URL(u).pathname) || /^maps\.app\.goo\.gl$|^goo\.gl$|^maps\.google\.|^maps\.apple\.com$/.test(h);
+  } catch {
+    return false;
+  }
+}
+
+function nameFromMapsUrl(u) {
+  // Le nom est lu encodé (pour garder « & »), puis décodé ; les liens « continue= » sont décodés une fois
+  const raw = String(u);
+  let once = raw;
+  try { once = decodeURIComponent(raw); } catch { /* adresse illisible */ }
+  const m = raw.match(/\/maps\/place\/([^/@?&]+)/) || once.match(/\/maps\/place\/([^/@?&]+)/);
+  if (m) {
+    let name = m[1].replace(/\+/g, " ");
+    try { name = decodeURIComponent(name); } catch { /* garder tel quel */ }
+    return name.replace(/\+/g, " ").replace(/\s+/g, " ").trim().slice(0, 140) || null;
+  }
+  try {
+    const q = new URL(u).searchParams.get("q") || new URL(u).searchParams.get("name");
+    if (q && !/^-?\d/.test(q)) return q.trim().slice(0, 140);
+  } catch { /* adresse illisible */ }
+  return null;
+}
+
+async function geocode(query) {
+  const q = String(query || "").replace(/\s+/g, " ").trim();
+  if (q.length < 2) return null;
+  try {
+    const r = await timedFetch(`https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&q=${encodeURIComponent(q.slice(0, 200))}`, {
+      headers: { "User-Agent": "Glane/1.0 (https://getglane.vercel.app)", "Accept-Language": "en" },
+    }, 5000);
+    if (!r.ok) return null;
+    const j = await r.json();
+    if (!Array.isArray(j) || !j.length) return null;
+    const lat = +j[0].lat, lng = +j[0].lon;
+    return validCoord(lat, lng) ? [lat, lng] : null;
+  } catch {
+    return null;
+  }
+}
+
+// Trouve la meilleure position : lien de carte, puis « nom, quartier », puis le quartier seul (approximatif)
+async function locate({ urls = [], name, place }) {
+  for (const u of urls) {
+    const c = coordsFromUrl(u);
+    if (c) return { lat: c[0], lng: c[1], geo_approx: false };
+  }
+  if (name && place) {
+    const c = await geocode(`${name}, ${place}`);
+    if (c) return { lat: c[0], lng: c[1], geo_approx: false };
+  }
+  if (place) {
+    const c = await geocode(place);
+    if (c) return { lat: c[0], lng: c[1], geo_approx: true };
+  }
+  if (name && !place) {
+    const c = await geocode(name);
+    if (c) return { lat: c[0], lng: c[1], geo_approx: false };
+  }
+  return null;
+}
+
+const TAG_SETS = ["muscles", "places"];
+function cleanTags(v) {
+  if (!Array.isArray(v)) return null;
+  const out = [];
+  for (const t of v) {
+    const s = String(t || "").replace(/\s+/g, " ").trim().slice(0, 24);
+    if (s && !out.some((x) => x.toLowerCase() === s.toLowerCase())) out.push(s);
+    if (out.length >= 10) break;
+  }
+  return out;
+}
+const cleanPlace = (v) => (typeof v === "string" && v.replace(/\s+/g, " ").trim() ? v.replace(/\s+/g, " ").trim().slice(0, 60) : null);
+
+module.exports = { coordsFromUrl, isMapsUrl, nameFromMapsUrl, geocode, locate, cleanTags, cleanPlace, TAG_SETS, validCoord };
 
 });
 
@@ -573,7 +678,8 @@ const crypto = require("crypto");
 const { db, requireUser, readBody, clip, UUID } = require("./_lib");
 
 const HEX = /^#[0-9a-f]{6}$/i;
-const KINDS = ["collection", "events", "todo"];
+const KINDS = ["collection", "events", "todo", "places"];
+const TAG_SETS = ["muscles", "places"];
 const ICON = /^[a-z]{2,20}$/; // nom d'icône, rangé dans la colonne emoji
 
 module.exports = async (req, res) => {
@@ -605,6 +711,7 @@ module.exports = async (req, res) => {
           emoji: ICON.test(b.icon || "") ? b.icon : "bookmark",
           color: HEX.test(b.color || "") ? b.color : "#D9D6CF",
           kind: KINDS.includes(b.kind) ? b.kind : "collection",
+          tagset: TAG_SETS.includes(b.tagset) ? b.tagset : b.kind === "places" ? "places" : null,
           position: last.length ? last[0].position + 1 : 0,
         },
       });
@@ -623,6 +730,7 @@ module.exports = async (req, res) => {
       if (KINDS.includes(b.kind)) patch.kind = b.kind;
       if (ICON.test(b.icon || "")) patch.emoji = b.icon;
       if (typeof b.on_profile === "boolean") patch.on_profile = b.on_profile;
+      if ("tagset" in b) patch.tagset = TAG_SETS.includes(b.tagset) ? b.tagset : null;
       // Partage par lien : un jeton aléatoire, supprimé quand on arrête de partager
       if (b.share === true) {
         const [cur] = await db(`${target}&select=share_token`);
@@ -659,6 +767,19 @@ __def("items", (module, exports, require) => {
 const crypto = require("crypto");
 const { db, uploadImage, deleteImage, requireUser, readBody, clip, norm, validDate, UUID } = require("./_lib");
 const { getPreview, downloadImage, BLOCKED } = require("./_preview");
+const { locate, isMapsUrl, nameFromMapsUrl, coordsFromUrl, cleanTags, cleanPlace } = require("./_geo");
+
+const isMapsLink = (u) => {
+  if (!u) return false;
+  if (isMapsUrl(u)) return true;
+  try { return /google\.[a-z.]+\/maps/.test(decodeURIComponent(u)); } catch { return false; }
+};
+
+async function boardInfo(uid, boardId) {
+  if (!boardId) return null;
+  const rows = await db(`boards?id=eq.${boardId}&user_id=eq.${uid}&select=id,kind,tagset`);
+  return rows[0] || null;
+}
 
 function sniff(buf) {
   if (buf[0] === 0xff && buf[1] === 0xd8) return "image/jpeg";
@@ -711,7 +832,12 @@ async function create(req, res, uid) {
     note: clip(b.note, 1000),
     event_date: validDate(b.event_date),
     remind_on: validDate(b.remind_on),
+    place: cleanPlace(b.place),
   };
+  const tags = cleanTags(b.tags);
+  if (tags) row.tags = tags;
+  const board = await boardInfo(uid, row.board_id);
+  let finalUrl = null;
   const buffer = decodeB64(b.image_base64);
   const text = typeof b.text === "string" ? b.text.trim() : "";
   let url = typeof b.url === "string" ? b.url.trim() : "";
@@ -727,6 +853,7 @@ async function create(req, res, uid) {
     row.url = url.slice(0, 2000);
     const hint = b.preview && typeof b.preview === "object" && !b.preview.isImage && (b.preview.image || b.preview.title) ? b.preview : null;
     const p = hint || (await getPreview(url));
+    finalUrl = p.finalUrl || null;
 
     if (p.imageDirect && !buffer) {
       const up = await uploadImage(p.buffer, p.contentType, file);
@@ -735,7 +862,11 @@ async function create(req, res, uid) {
       row.type = "link";
       row.site = clip(p.site, 80);
       row.price = clip(p.price, 40);
-      if (!row.title && p.title && !BLOCKED.test(p.title)) row.title = clip(p.title, 140);
+      if (isMapsLink(url) || isMapsLink(finalUrl)) {
+        // Lien de carte : le nom du lieu est dans l'adresse, la page elle-même n'apprend rien
+        row.site = "Maps";
+        if (!row.title) row.title = clip(nameFromMapsUrl(finalUrl || "") || nameFromMapsUrl(url) || "", 140);
+      } else if (!row.title && p.title && !BLOCKED.test(p.title)) row.title = clip(p.title, 140);
       if (buffer) {
         const up = await uploadImage(buffer, sniff(buffer), file);
         Object.assign(row, { image_url: up.url, image_path: up.path });
@@ -751,6 +882,13 @@ async function create(req, res, uid) {
     row.text = text.slice(0, 5000);
   } else {
     return res.status(400).json({ error: "Nothing to save" });
+  }
+
+  // Un lieu (tableau Places ou lien de carte) reçoit sa position
+  if ((board && board.kind === "places") || isMapsLink(url) || isMapsLink(finalUrl)) {
+    const name = row.title || (row.text ? row.text.split("\n")[0].slice(0, 120) : null);
+    const loc = await locate({ urls: [url, finalUrl].filter(Boolean), name, place: row.place });
+    if (loc) Object.assign(row, loc);
   }
 
   const [saved] = await db("items", { method: "POST", body: row });
@@ -774,6 +912,8 @@ async function update(req, res, uid, id) {
   if (b.done === false) patch.done_at = null;
   if (b.archived === true) patch.archived_at = cur.archived_at || new Date().toISOString();
   if (b.archived === false) patch.archived_at = null;
+  if ("tags" in b) patch.tags = cleanTags(b.tags) || [];
+  if ("place" in b) patch.place = cleanPlace(b.place);
   if ("remind_on" in b) {
     patch.remind_on = validDate(b.remind_on);
     patch.reminded_at = null; // nouvelle date : le rappel repart
@@ -795,6 +935,22 @@ async function update(req, res, uid, id) {
     if (!cur.site && p.site) patch.site = clip(p.site, 80);
     if (!cur.price && p.price) patch.price = clip(p.price, 40);
     if (!cur.image_url && !buffer && p.image) Object.assign(patch, await storeRemoteImage(p.image, cur.url, `${uid}/${id}-${Date.now()}`));
+  }
+
+  // Nouvelle position si le lieu, son nom ou son tableau change (sauf position exacte venue d'un lien de carte)
+  const nextBoardId = "board_id" in patch ? patch.board_id : cur.board_id;
+  const nextBoard = await boardInfo(uid, nextBoardId);
+  const placeChanged = "place" in patch && patch.place !== cur.place;
+  const titleChanged = "title" in patch && patch.title !== cur.title;
+  const movedIn = "board_id" in patch && patch.board_id !== cur.board_id && cur.lat == null;
+  const exactFromUrl = cur.url && coordsFromUrl(cur.url);
+  // Seulement quand quelque chose qui change la position a changé (pas à chaque case cochée)
+  if (nextBoard && nextBoard.kind === "places" && !exactFromUrl && (placeChanged || titleChanged || movedIn)) {
+    const nextPlace = "place" in patch ? patch.place : cur.place;
+    const name = ("title" in patch ? patch.title : cur.title) || (cur.text ? cur.text.split("\n")[0].slice(0, 120) : null);
+    const loc = await locate({ urls: [], name, place: nextPlace });
+    if (loc) Object.assign(patch, loc);
+    else if (placeChanged) Object.assign(patch, { lat: null, lng: null, geo_approx: false });
   }
 
   if (!Object.keys(patch).length) return res.json({ item: cur });
@@ -851,7 +1007,7 @@ module.exports = async (req, res) => {
     const url = String((req.query && req.query.url) || "");
     if (!/^https?:\/\//i.test(url)) return res.status(400).json({ error: "Invalid link" });
     const p = await getPreview(url);
-    res.json({ title: p.title || null, image: p.image || null, site: p.site || null, price: p.price || null, isImage: !!p.imageDirect });
+    res.json({ title: p.title || null, image: p.image || null, site: p.site || null, price: p.price || null, isImage: !!p.imageDirect, finalUrl: p.finalUrl || null });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: e.message });
@@ -926,7 +1082,7 @@ const FAMILY_RULES = {
   culture: { slugs: [], icons: ["film", "music", "palette", "camera"], name: /film|cin[ée]ma|movie|music|musique|art|expo|exhibit|museum|mus[ée]e|culture|podcast|th[ée][aâ]tre|theat/i },
   mind: { slugs: ["spiritual", "fitness"], icons: ["leaf", "sparkles", "dumbbell", "heart"], name: /mind|spirit|medit|well|yoga|fitness|sport|soul/i },
   table: { slugs: ["food"], icons: ["utensils", "coffee"], name: /food|recipe|recette|cook|cuisine|restaurant/i },
-  places: { slugs: [], icons: ["plane", "globe", "home"], name: /travel|voyage|place|trip|city|lieu/i },
+  places: { slugs: ["spots"], icons: ["plane", "globe", "home", "pin"], name: /travel|voyage|place|trip|city|lieu|spot/i },
 };
 
 // Le tableau décide en priorité ; une note sans tableau reconnu est traitée comme une pensée
@@ -1197,7 +1353,7 @@ const TOKEN = /^[A-Za-z0-9_-]{16,40}$/;
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
 async function load(token) {
-  const boards = await db(`boards?share_token=eq.${token}&select=id,name,emoji,color,kind,slug`);
+  const boards = await db(`boards?share_token=eq.${token}&select=id,name,emoji,color,kind,slug,tagset`);
   if (!boards.length) return null;
   const board = boards[0];
   // Jamais les notes perso, ni ce qui a été mis de côté
@@ -1206,13 +1362,13 @@ async function load(token) {
   return { board, items };
 }
 
-const ITEM_FIELDS = "id,type,title,text,url,site,image_url,event_date,created_at,board_id,done_at";
+const ITEM_FIELDS = "id,type,title,text,url,site,image_url,event_date,created_at,board_id,done_at,tags,place";
 
 async function loadProfile(token) {
   const profs = await db(`profiles?profile_token=eq.${token}&select=user_id,display_name`);
   if (!profs.length) return null;
   const owner = profs[0];
-  const boards = await db(`boards?user_id=eq.${owner.user_id}&on_profile=eq.true&select=id,name,emoji,color,kind,slug,position&order=position.asc`);
+  const boards = await db(`boards?user_id=eq.${owner.user_id}&on_profile=eq.true&select=id,name,emoji,color,kind,slug,tagset,position&order=position.asc`);
   const list = [];
   if (boards.length) {
     const items = await db(`items?board_id=in.(${boards.map((b) => b.id).join(",")})&archived_at=is.null&select=board_id,type,text,image_url&order=created_at.desc&limit=3000`);
@@ -1230,7 +1386,7 @@ async function loadProfileBoard(token, boardId) {
   if (!UUID.test(boardId)) return null;
   const profs = await db(`profiles?profile_token=eq.${token}&select=user_id`);
   if (!profs.length) return null;
-  const boards = await db(`boards?id=eq.${boardId}&user_id=eq.${profs[0].user_id}&on_profile=eq.true&select=id,name,emoji,color,kind,slug`);
+  const boards = await db(`boards?id=eq.${boardId}&user_id=eq.${profs[0].user_id}&on_profile=eq.true&select=id,name,emoji,color,kind,slug,tagset`);
   if (!boards.length) return null;
   const items = await db(`items?board_id=eq.${boardId}&archived_at=is.null&select=${ITEM_FIELDS}&order=created_at.desc&limit=500`);
   for (const i of items) if (i.title && BLOCKED.test(i.title)) i.title = null;
