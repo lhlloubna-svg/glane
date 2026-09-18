@@ -769,6 +769,10 @@ const { db, uploadImage, deleteImage, requireUser, readBody, clip, norm, validDa
 const { getPreview, downloadImage, BLOCKED } = require("./_preview");
 const { locate, isMapsUrl, nameFromMapsUrl, coordsFromUrl, cleanTags, cleanPlace } = require("./_geo");
 
+// Plan de la semaine : 0 = lundi … 6 = dimanche
+const weekDay = (v) => (v === null || v === "" || v === undefined ? null : Number.isInteger(+v) && +v >= 0 && +v <= 6 ? +v : null);
+const setsReps = (v) => (typeof v === "string" && v.replace(/\s+/g, " ").trim() ? v.replace(/\s+/g, " ").trim().slice(0, 24) : null);
+
 const isMapsLink = (u) => {
   if (!u) return false;
   if (isMapsUrl(u)) return true;
@@ -833,6 +837,8 @@ async function create(req, res, uid) {
     event_date: validDate(b.event_date),
     remind_on: validDate(b.remind_on),
     place: cleanPlace(b.place),
+    week_day: weekDay(b.week_day),
+    sets_reps: setsReps(b.sets_reps),
   };
   const tags = cleanTags(b.tags);
   if (tags) row.tags = tags;
@@ -914,6 +920,8 @@ async function update(req, res, uid, id) {
   if (b.archived === false) patch.archived_at = null;
   if ("tags" in b) patch.tags = cleanTags(b.tags) || [];
   if ("place" in b) patch.place = cleanPlace(b.place);
+  if ("week_day" in b) patch.week_day = weekDay(b.week_day);
+  if ("sets_reps" in b) patch.sets_reps = setsReps(b.sets_reps);
   if ("remind_on" in b) {
     patch.remind_on = validDate(b.remind_on);
     patch.reminded_at = null; // nouvelle date : le rappel repart
